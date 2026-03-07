@@ -1,15 +1,19 @@
 {
   "name": "jsonl-benchmark",
-  "version": "2.0.0",
-  "description": "E2E benchmark: buffered vs streamed responses from PostgreSQL, measuring memory + throughput",
+  "version": "3.0.0",
+  "description": "PostgreSQL streaming benchmark: porsager/postgres vs pg vs pg-query-stream, measuring memory + throughput",
   "scripts": {
     "run": "bun src/run.ts",
     "server": "bun src/server.ts",
     "db:setup": "bun src/db/setup.ts",
-    "bench": "bun src/benchmarks/e2e.ts"
+    "bench:db": "bun src/benchmarks/db-drivers.ts",
+    "bench:http": "bun src/benchmarks/http-e2e.ts"
   },
   "dependencies": {
     "elysia": "^1.2.25",
+    "mitata": "^1.0.34",
+    "pg": "^8.20.0",
+    "pg-query-stream": "^4.14.0",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
