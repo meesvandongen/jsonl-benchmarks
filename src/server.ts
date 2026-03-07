@@ -1,16 +1,18 @@
 /**
- * Benchmark server — four response strategies, all backed by PostgreSQL:
+ * Benchmark server — five response strategies backed by PostgreSQL:
  *
- *   GET /buffered?limit=N        — SELECT all rows, JSON array response
- *   GET /stream-cursor?limit=N   — .cursor(500) + ReadableStream NDJSON
- *   GET /stream-foreach?limit=N  — .forEach(fn) + ReadableStream NDJSON
- *   GET /yield-cursor?limit=N    — .cursor(500) + Elysia native yield
- *   GET /health                  — healthcheck
- *   GET /memory                  — process memory snapshot
+ *   GET /buffered?limit=N         — porsager SELECT all, JSON array
+ *   GET /stream-cursor?limit=N    — porsager .cursor(500) + ReadableStream NDJSON
+ *   GET /stream-foreach?limit=N   — porsager .forEach(fn) + ReadableStream NDJSON
+ *   GET /yield-cursor?limit=N     — porsager .cursor(500) + Elysia yield
+ *   GET /pg-query-stream?limit=N  — pg-query-stream cursor + ReadableStream NDJSON
+ *   GET /health                   — healthcheck
+ *   GET /memory                   — process memory snapshot
  */
 
 import { Elysia } from "elysia";
-import { sql } from "./db/client";
+import { sql, pool } from "./db/client";
+import QueryStream from "pg-query-stream";
 
 const PORT = parseInt(process.env.PORT ?? "3000");
 const enc = new TextEncoder();
@@ -29,7 +31,7 @@ const app = new Elysia()
     };
   })
 
-  // Strategy 1: Buffer everything — load all rows, serialize, send
+  // Strategy 1: porsager buffered — load all rows, JSON array
   .get("/buffered", async ({ query }) => {
     const limit = parseInt((query as Record<string, string>).limit ?? "1000");
     const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${limit}`;
@@ -39,7 +41,7 @@ const app = new Elysia()
     });
   })
 
-  // Strategy 2: Cursor + ReadableStream — batch cursor, manual stream
+  // Strategy 2: porsager cursor + ReadableStream
   .get("/stream-cursor", ({ query }) => {
     const limit = parseInt((query as Record<string, string>).limit ?? "1000");
     const stream = new ReadableStream({
@@ -62,7 +64,7 @@ const app = new Elysia()
     });
   })
 
-  // Strategy 3: forEach + ReadableStream — postgres instant iteration, manual stream
+  // Strategy 3: porsager forEach + ReadableStream
   .get("/stream-foreach", ({ query }) => {
     const limit = parseInt((query as Record<string, string>).limit ?? "1000");
     const stream = new ReadableStream({
@@ -83,7 +85,7 @@ const app = new Elysia()
     });
   })
 
-  // Strategy 4: Cursor + Elysia native yield — async generator streaming
+  // Strategy 4: porsager cursor + Elysia yield
   .get("/yield-cursor", async function* ({ query, set }) {
     set.headers["content-type"] = "application/x-ndjson";
     const limit = parseInt((query as Record<string, string>).limit ?? "1000");
@@ -93,6 +95,35 @@ const app = new Elysia()
         yield JSON.stringify(row.data) + "\n";
       }
     }
+  })
+
+  // Strategy 5: pg-query-stream + ReadableStream
+  .get("/pg-query-stream", ({ query }) => {
+    const limit = parseInt((query as Record<string, string>).limit ?? "1000");
+    const stream = new ReadableStream({
+      async start(controller) {
+        const client = await pool.connect();
+        try {
+          const qs = new QueryStream(
+            "SELECT data FROM records ORDER BY id LIMIT $1",
+            [limit],
+            { batchSize: 500 }
+          );
+          const pgStream = client.query(qs);
+          for await (const row of pgStream) {
+            controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
+          }
+          controller.close();
+        } catch (e) {
+          controller.error(e);
+        } finally {
+          client.release();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson" },
+    });
   })
 
   .listen(PORT);
