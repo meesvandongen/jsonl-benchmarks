@@ -1,18 +1,30 @@
 {
   "name": "jsonl-benchmark",
-  "version": "3.0.0",
-  "description": "PostgreSQL streaming benchmark: porsager/postgres vs pg vs pg-query-stream, measuring memory + throughput",
+  "version": "4.0.0",
+  "description": "Comprehensive PostgreSQL streaming benchmark suite: drivers, serialization, memory, concurrency, compression, WebSocket, and more",
   "scripts": {
     "run": "bun src/run.ts",
     "server": "bun src/server.ts",
+    "server:raw": "bun src/server-raw.ts",
     "db:setup": "bun src/db/setup.ts",
     "bench:db": "bun src/benchmarks/db-drivers.ts",
-    "bench:http": "bun src/benchmarks/http-e2e.ts"
+    "bench:db-variants": "bun src/benchmarks/db-driver-variants.ts",
+    "bench:serialization": "bun src/benchmarks/serialization.ts",
+    "bench:write": "bun src/benchmarks/write-path.ts",
+    "bench:real-world": "bun src/benchmarks/real-world.ts",
+    "bench:memory": "bun src/benchmarks/memory-gc.ts",
+    "bench:http": "bun src/benchmarks/http-e2e.ts",
+    "bench:framework": "bun src/benchmarks/http-bun-raw.ts",
+    "bench:compression": "bun src/benchmarks/http-compression.ts",
+    "bench:websocket": "bun src/benchmarks/http-websocket.ts",
+    "bench:concurrency": "bun src/benchmarks/concurrency.ts"
   },
   "dependencies": {
     "elysia": "^1.2.25",
     "mitata": "^1.0.34",
+    "msgpackr": "^1.11.8",
     "pg": "^8.20.0",
+    "pg-cursor": "^2.19.0",
     "pg-query-stream": "^4.14.0",
     "postgres": "^3.4.5"
   },

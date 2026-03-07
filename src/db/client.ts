@@ -14,7 +14,7 @@ export const sql = postgres({
   database: DB_NAME,
   username: DB_USER,
   password: DB_PASS,
-  max: 20,
+  max: parseInt(process.env.DB_POOL_MAX ?? "20"),
   idle_timeout: 30,
   connect_timeout: 10,
   onnotice: () => {},
@@ -27,7 +27,7 @@ export const pool = new pg.Pool({
   database: DB_NAME,
   user: DB_USER,
   password: DB_PASS,
-  max: 20,
+  max: parseInt(process.env.DB_POOL_MAX ?? "20"),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });

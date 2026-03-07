@@ -1,4 +1,8 @@
-import type { HttpBenchmarkResults, RunResult, Strategy, STRATEGIES, STRATEGY_LABELS } from "../benchmarks/http-e2e";
+import type { HttpBenchmarkResults, RunResult, Strategy } from "../benchmarks/http-e2e";
+import type { FrameworkResult } from "../benchmarks/http-bun-raw";
+import type { CompressionResult } from "../benchmarks/http-compression";
+import type { WsResult } from "../benchmarks/http-websocket";
+import type { ConcurrencyResult } from "../benchmarks/concurrency";
 
 function r2(n: number) { return Math.round(n * 100) / 100; }
 function ms(n: number) {
@@ -34,13 +38,22 @@ const LABELS: Record<Strategy, string> = {
   "pg-query-stream": "pg-query-stream",
 };
 
-export function buildMarkdownReport(
-  bench: HttpBenchmarkResults,
-  meta: { platform: string; runtime: string; pgVersion: string; seedCount: number }
-): string {
+interface ReportMeta {
+  platform: string;
+  runtime: string;
+  pgVersion: string;
+  seedCount: number;
+  frameworkResults?: FrameworkResult[];
+  compressionResults?: CompressionResult[];
+  wsResults?: WsResult[];
+  concurrencyResults?: ConcurrencyResult[];
+}
+
+export function buildMarkdownReport(bench: HttpBenchmarkResults, meta: ReportMeta): string {
   const lines: string[] = [];
   const strats = bench.strategies;
 
+  // ─── Header ────────────────────────────────────────────────────────────
   lines.push("# Benchmark Results");
   lines.push("");
   lines.push(`> Generated: ${new Date().toISOString()}`);
@@ -50,6 +63,7 @@ export function buildMarkdownReport(
   lines.push(`> DB rows: ${num(meta.seedCount)} | Concurrency: ${bench.concurrency}`);
   lines.push("");
 
+  // ─── Strategies table ──────────────────────────────────────────────────
   lines.push("## Strategies");
   lines.push("");
   lines.push("| Strategy | DB driver | DB access | HTTP response |");
@@ -60,13 +74,15 @@ export function buildMarkdownReport(
   lines.push("| **Elysia yield** | porsager/postgres | `.cursor(500)` | Elysia `yield` generator |");
   lines.push("| **pg-query-stream** | node-postgres (pg) | cursor stream | `ReadableStream` NDJSON |");
   lines.push("");
-  lines.push("DB driver benchmarks (mitata) are printed to stdout above.");
+  lines.push("DB driver + serialization + write path + real-world benchmarks (mitata) are printed to stdout.");
   lines.push("Below: HTTP E2E results with peak memory measurement.");
   lines.push("");
   lines.push("---");
   lines.push("");
 
-  // Memory table
+  // ─── Core HTTP E2E tables ──────────────────────────────────────────────
+
+  // Peak Memory
   lines.push("## Peak Memory (RSS delta from baseline)");
   lines.push("");
   const memHeaders = ["Rows", ...strats.map((s) => LABELS[s])];
@@ -81,7 +97,7 @@ export function buildMarkdownReport(
   lines.push(mdTable(memHeaders, memRows));
   lines.push("");
 
-  // Throughput table
+  // Throughput
   lines.push("## Throughput (RPS)");
   lines.push("");
   const rpsHeaders = ["Rows", ...strats.map((s) => LABELS[s])];
@@ -96,7 +112,7 @@ export function buildMarkdownReport(
   lines.push(mdTable(rpsHeaders, rpsRows));
   lines.push("");
 
-  // Latency table
+  // Latency
   lines.push("## p95 Latency");
   lines.push("");
   const latHeaders = ["Rows", ...strats.map((s) => LABELS[s])];
@@ -126,7 +142,106 @@ export function buildMarkdownReport(
   lines.push(mdTable(absHeaders, absRows));
   lines.push("");
 
-  // Key takeaways
+  // ─── Framework overhead ────────────────────────────────────────────────
+
+  if (meta.frameworkResults && meta.frameworkResults.length > 0) {
+    lines.push("---");
+    lines.push("");
+    lines.push("## Framework Overhead: Elysia vs Bun.serve raw");
+    lines.push("");
+    const fwHeaders = ["Size", "Endpoint", "Elysia RPS", "Bun.serve RPS", "Elysia p95", "Bun.serve p95"];
+    const fwRows: string[][] = [];
+    const sizes = [...new Set(meta.frameworkResults.map((r) => r.size))].sort((a, b) => a - b);
+    const endpoints = [...new Set(meta.frameworkResults.map((r) => r.endpoint))];
+    for (const size of sizes) {
+      for (const ep of endpoints) {
+        const elysia = meta.frameworkResults.find((r) => r.framework === "Elysia" && r.size === size && r.endpoint === ep);
+        const raw = meta.frameworkResults.find((r) => r.framework === "Bun.serve raw" && r.size === size && r.endpoint === ep);
+        if (elysia && raw) {
+          fwRows.push([
+            num(size),
+            ep,
+            rps(elysia.rps),
+            rps(raw.rps),
+            ms(elysia.p95),
+            ms(raw.p95),
+          ]);
+        }
+      }
+    }
+    lines.push(mdTable(fwHeaders, fwRows));
+    lines.push("");
+  }
+
+  // ─── Compression ───────────────────────────────────────────────────────
+
+  if (meta.compressionResults && meta.compressionResults.length > 0) {
+    lines.push("---");
+    lines.push("");
+    lines.push("## Compression: Uncompressed vs Gzip");
+    lines.push("");
+    const cHeaders = ["Size", "Mode", "RPS", "p95", "Memory", "Throughput"];
+    const cRows: string[][] = [];
+    for (const r of meta.compressionResults) {
+      cRows.push([
+        num(r.size),
+        r.endpoint,
+        rps(r.rps),
+        ms(r.p95),
+        `+${r.peakRssDeltaMB}MB`,
+        `${r2(r.throughputBytesPerSec / 1024 / 1024)}MB/s`,
+      ]);
+    }
+    lines.push(mdTable(cHeaders, cRows));
+    lines.push("");
+  }
+
+  // ─── WebSocket ─────────────────────────────────────────────────────────
+
+  if (meta.wsResults && meta.wsResults.length > 0) {
+    lines.push("---");
+    lines.push("");
+    lines.push("## Transport: HTTP NDJSON vs WebSocket");
+    lines.push("");
+    const wHeaders = ["Size", "Transport", "RPS", "p95", "Memory"];
+    const wRows: string[][] = [];
+    for (const r of meta.wsResults) {
+      wRows.push([
+        num(r.size),
+        r.transport,
+        rps(r.rps),
+        ms(r.p95),
+        `+${r.peakRssDeltaMB}MB`,
+      ]);
+    }
+    lines.push(mdTable(wHeaders, wRows));
+    lines.push("");
+  }
+
+  // ─── Concurrency ───────────────────────────────────────────────────────
+
+  if (meta.concurrencyResults && meta.concurrencyResults.length > 0) {
+    lines.push("---");
+    lines.push("");
+    lines.push("## Concurrency & Backpressure");
+    lines.push("");
+    const conHeaders = ["Test", "Concurrency", "RPS", "p95", "Memory"];
+    const conRows: string[][] = [];
+    for (const r of meta.concurrencyResults) {
+      conRows.push([
+        r.test,
+        String(r.concurrency),
+        rps(r.rps),
+        ms(r.p95),
+        `+${r.peakRssDeltaMB}MB`,
+      ]);
+    }
+    lines.push(mdTable(conHeaders, conRows));
+    lines.push("");
+  }
+
+  // ─── Key takeaways ────────────────────────────────────────────────────
+
   lines.push("---");
   lines.push("");
   lines.push("## Key Takeaways");
@@ -155,7 +270,31 @@ export function buildMarkdownReport(
   );
   const maxStreamRSS = Math.max(...streamPeaks);
   lines.push(`- With streaming, server RSS stays under ~${Math.ceil(maxStreamRSS)}MB — safe for container memory limits`);
-  lines.push("");
 
+  // Framework insights
+  if (meta.frameworkResults && meta.frameworkResults.length > 0) {
+    const elysiaAvg = meta.frameworkResults.filter((r) => r.framework === "Elysia").reduce((s, r) => s + r.rps, 0) / meta.frameworkResults.filter((r) => r.framework === "Elysia").length;
+    const rawAvg = meta.frameworkResults.filter((r) => r.framework === "Bun.serve raw").reduce((s, r) => s + r.rps, 0) / meta.frameworkResults.filter((r) => r.framework === "Bun.serve raw").length;
+    const overhead = r2(((rawAvg - elysiaAvg) / rawAvg) * 100);
+    if (overhead > 0) {
+      lines.push(`- Elysia framework overhead: ~${overhead}% lower RPS vs raw Bun.serve on average`);
+    } else {
+      lines.push(`- Elysia adds negligible overhead vs raw Bun.serve`);
+    }
+  }
+
+  // Compression insights
+  if (meta.compressionResults && meta.compressionResults.length > 0) {
+    const uncompressed = meta.compressionResults.filter((r) => r.endpoint === "uncompressed");
+    const gzip = meta.compressionResults.filter((r) => r.endpoint === "gzip");
+    if (uncompressed.length > 0 && gzip.length > 0) {
+      const avgBandwidthSaving = r2(
+        (1 - gzip.reduce((s, r) => s + r.throughputBytesPerSec, 0) / uncompressed.reduce((s, r) => s + r.throughputBytesPerSec, 0)) * 100
+      );
+      lines.push(`- Gzip compression reduces bandwidth by ~${Math.abs(avgBandwidthSaving)}% with modest CPU overhead`);
+    }
+  }
+
+  lines.push("");
   return lines.join("\n");
 }
