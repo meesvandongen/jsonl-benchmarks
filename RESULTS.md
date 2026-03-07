@@ -1,6 +1,6 @@
-# E2E Benchmark: Response Strategies from PostgreSQL
+# Benchmark Results
 
-> Generated: 2026-03-07T10:41:16.867Z
+> Generated: 2026-03-07T11:11:53.629Z
 > Platform: win32 x64
 > Runtime: Bun 1.3.9
 > PostgreSQL: 16.13
@@ -8,67 +8,57 @@
 
 ## Strategies
 
-| Strategy | DB access | HTTP response | Memory model |
+| Strategy | DB driver | DB access | HTTP response |
 | --- | --- | --- | --- |
-| **Buffered** | `SELECT ... LIMIT N` (all at once) | JSON array | Grows with N |
-| **Cursor+RS** | `.cursor(500)` batched iteration | `ReadableStream` NDJSON | Flat |
-| **forEach+RS** | `.forEach(fn)` instant row callback | `ReadableStream` NDJSON | Flat |
-| **Yield+Cursor** | `.cursor(500)` batched iteration | Elysia `yield` generator | Flat |
+| **Buffered** | porsager/postgres | `SELECT ... LIMIT N` | JSON array |
+| **porsager cursor** | porsager/postgres | `.cursor(500)` | `ReadableStream` NDJSON |
+| **porsager forEach** | porsager/postgres | `.forEach(fn)` | `ReadableStream` NDJSON |
+| **Elysia yield** | porsager/postgres | `.cursor(500)` | Elysia `yield` generator |
+| **pg-query-stream** | node-postgres (pg) | cursor stream | `ReadableStream` NDJSON |
 
-Primary metric: **peak memory (RSS)**. Secondary: throughput, latency.
+DB driver benchmarks (mitata) are printed to stdout above.
+Below: HTTP E2E results with peak memory measurement.
 
 ---
 
 ## Peak Memory (RSS delta from baseline)
 
-How much *extra* memory above the server's idle baseline during concurrent load.
-
-| Rows    | Buffered   | Cursor+RS | forEach+RS | Yield+Cursor |
-| ------- | ---------- | --------- | ---------- | ------------ |
-| 100     | +82.41MB   | +77.11MB  | +72.97MB   | +78.25MB     |
-| 1,000   | +101.84MB  | +93.19MB  | +97.63MB   | +97.04MB     |
-| 10,000  | +282.21MB  | +91.16MB  | +92.17MB   | +99.7MB      |
-| 50,000  | +725.3MB   | +90.29MB  | +90.79MB   | +98.03MB     |
-| 100,000 | +1244.46MB | +88.96MB  | +92.42MB   | +101.25MB    |
+| Rows    | Buffered   | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
+| ------- | ---------- | --------------- | ---------------- | ------------ | --------------- |
+| 1,000   | +105MB     | +85.41MB        | +93.37MB         | +86.03MB     | +85.49MB        |
+| 10,000  | +229.64MB  | +87.43MB        | +93.36MB         | +89.16MB     | +81.52MB        |
+| 100,000 | +1163.85MB | +81.41MB        | +82.81MB         | +89.7MB      | +78.6MB         |
 
 ## Throughput (RPS)
 
-| Rows    | Buffered | Cursor+RS | forEach+RS | Yield+Cursor |
-| ------- | -------- | --------- | ---------- | ------------ |
-| 100     | 1.4k     | 364       | 773        | 299          |
-| 1,000   | 159      | 36        | 61         | 33           |
-| 10,000  | 19       | 5         | 5          | 4            |
-| 50,000  | 5        | 2         | 2          | 2            |
-| 100,000 | 3        | 2         | 2          | 2            |
+| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
+| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
+| 1,000   | 118      | 33              | 53               | 24           | 23              |
+| 10,000  | 12       | 3               | 4                | 3            | 3               |
+| 100,000 | 2        | 2               | 2                | 2            | 2               |
 
 ## p95 Latency
 
-| Rows    | Buffered | Cursor+RS | forEach+RS | Yield+Cursor |
-| ------- | -------- | --------- | ---------- | ------------ |
-| 100     | 11.26ms  | 35.67ms   | 24.67ms    | 45.29ms      |
-| 1,000   | 97.81ms  | 349.4ms   | 406.68ms   | 387.68ms     |
-| 10,000  | 658.5ms  | 3.26s     | 3.91s      | 3.51s        |
-| 50,000  | 2.79s    | 13.75s    | 14.98s     | 17.63s       |
-| 100,000 | 6.06s    | 29.97s    | 28.43s     | 35.67s       |
+| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
+| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
+| 1,000   | 146.56ms | 374.2ms         | 495.19ms         | 532.8ms      | 666.21ms        |
+| 10,000  | 1.3s     | 4.24s           | 4.69s            | 4.28s        | 4.44s           |
+| 100,000 | 7.75s    | 35.96s          | 32.59s           | 37.89s       | 40.97s          |
 
 ## Absolute Peak RSS (MB)
 
-| Rows    | Buffered | Cursor+RS | forEach+RS | Yield+Cursor |
-| ------- | -------- | --------- | ---------- | ------------ |
-| 100     | 371.34   | 318.04    | 319.68     | 304.27       |
-| 1,000   | 373.61   | 339.49    | 360.41     | 378.93       |
-| 10,000  | 571.34   | 356.78    | 335.79     | 346.55       |
-| 50,000  | 1003.85  | 333.67    | 368.55     | 339.88       |
-| 100,000 | 1496.98  | 315.48    | 333.1      | 322.85       |
+| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
+| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
+| 1,000   | 401.95   | 320.46          | 390.71           | 326.18       | 335.43          |
+| 10,000  | 501.77   | 327.97          | 359.73           | 329.42       | 307.2           |
+| 100,000 | 1399.77  | 357.33          | 307.41           | 320.45       | 308.63          |
 
 ---
 
 ## Key Takeaways
 
-- **All streaming strategies use dramatically less memory than buffered** at 100,000 rows
-- Best streaming (Cursor+RS): +88.96MB vs buffered: +1244.46MB (~13.99x less)
-- All three streaming strategies have **similar memory profiles** (within 12.29MB of each other)
-- Streaming RPS is similar across all three strategies at 100,000 rows
-- cursor and forEach have similar throughput — choose based on API ergonomics
-- Elysia yield and ReadableStream have similar throughput — yield is cleaner code
-- With any streaming strategy, RSS stays under ~379MB even at 100,000 rows
+- **All streaming strategies use ~14.81x less memory** than buffered at 100,000 rows
+- Buffered: +1163.85MB vs best streaming (pg-query-stream): +78.6MB
+- All streaming strategies have **similar memory** (within 11.1MB)
+- Highest streaming RPS at 100,000 rows: **pg-query-stream** (2)
+- With streaming, server RSS stays under ~391MB — safe for container memory limits
