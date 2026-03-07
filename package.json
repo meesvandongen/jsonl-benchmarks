@@ -1,0 +1,18 @@
+{
+  "name": "jsonl-benchmark",
+  "version": "2.0.0",
+  "description": "E2E benchmark: buffered vs streamed responses from PostgreSQL, measuring memory + throughput",
+  "scripts": {
+    "run": "bun src/run.ts",
+    "server": "bun src/server.ts",
+    "db:setup": "bun src/db/setup.ts",
+    "bench": "bun src/benchmarks/e2e.ts"
+  },
+  "dependencies": {
+    "elysia": "^1.2.25",
+    "postgres": "^3.4.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
