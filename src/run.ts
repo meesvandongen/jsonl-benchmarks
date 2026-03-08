@@ -1,39 +1,83 @@
 /**
- * Full benchmark orchestrator:
+ * Full benchmark orchestrator — runs all benchmarks and saves individual
+ * report files to reports/.
  *
  *  1. Connect to PostgreSQL
  *  2. Seed all tables (records, records_text, users, orders)
- *  3. DB driver benchmark (mitata — core read strategies)
- *  4. DB driver variants (mitata — .readable, pg-cursor, COPY, prepared)
- *  5. Serialization benchmark (mitata — JSON vs NDJSON vs msgpack, JSONB vs TEXT)
- *  6. Write path benchmark (mitata — INSERT strategies)
- *  7. Real-world patterns (mitata — filtered, pagination, transforms, JOINs)
- *  8. Memory & GC pressure analysis
- *  9. HTTP E2E memory benchmark (5 core strategies)
- * 10. HTTP framework overhead (Elysia vs Bun.serve raw)
- * 11. HTTP compression benchmark
- * 12. HTTP WebSocket vs NDJSON
- * 13. Concurrency & backpressure
- * 14. Write RESULTS.md
+ *  3. DB driver benchmark (mitata) → reports/db-drivers.txt
+ *  4. DB driver variants (mitata) → reports/db-driver-variants.txt
+ *  5. Serialization benchmark (mitata) → reports/serialization.txt
+ *  6. Write path benchmark (mitata) → reports/write-path.txt
+ *  7. Real-world patterns (mitata) → reports/real-world.txt
+ *  8. Memory & GC pressure analysis → reports/memory-gc.txt
+ *  9. HTTP E2E memory benchmark → reports/http-e2e.json
+ * 10. HTTP framework overhead → reports/framework.json
+ * 11. HTTP compression benchmark → reports/compression.json
+ * 12. HTTP WebSocket vs NDJSON → reports/websocket.json
+ * 13. Concurrency & backpressure → reports/concurrency.json
+ * 14. Streaming bottleneck analysis → reports/bottleneck.json
+ * 15. Go backpressure benchmark → reports/go-backpressure.json
+ * 16. Save environment metadata → reports/meta.json
  */
 
 import { sql, pool, waitForDb } from "./db/client";
 import { setupTables, seedIfNeeded, seedTextIfNeeded, seedUsersAndOrders } from "./db/setup";
-import { runHttpBenchmark, type HttpBenchmarkResults } from "./benchmarks/http-e2e";
-import { runFrameworkBenchmark, type FrameworkResult } from "./benchmarks/http-bun-raw";
-import { runCompressionBenchmark, type CompressionResult } from "./benchmarks/http-compression";
-import { runWebSocketBenchmark, type WsResult } from "./benchmarks/http-websocket";
-import { runConcurrencyBenchmark, type ConcurrencyResult } from "./benchmarks/concurrency";
-import { buildMarkdownReport } from "./utils/md-report";
+import { runHttpBenchmark } from "./benchmarks/http-e2e";
+import { runFrameworkBenchmark } from "./benchmarks/http-bun-raw";
+import { runCompressionBenchmark } from "./benchmarks/http-compression";
+import { runWebSocketBenchmark } from "./benchmarks/http-websocket";
+import { runConcurrencyBenchmark } from "./benchmarks/concurrency";
+import { runBottleneckAnalysis } from "./benchmarks/bottleneck-analysis";
+import { runGoBackpressureBenchmark } from "./benchmarks/go-backpressure";
 
-const OUT_FILE = "RESULTS.md";
+const REPORTS_DIR = "reports";
 const SEED_COUNT = 100_000;
-const TOTAL_STEPS = 14;
+const TOTAL_STEPS = 16;
 
 function step(n: number, msg: string) {
   console.log(`\n${"─".repeat(72)}`);
   console.log(`  Step ${n}/${TOTAL_STEPS} — ${msg}`);
   console.log(`${"─".repeat(72)}`);
+}
+
+async function saveReport(name: string, data: unknown) {
+  const path = `${REPORTS_DIR}/${name}.json`;
+  const json = JSON.stringify(data, null, 2);
+  await Bun.write(path, json);
+  console.log(`  → ${path} (${(json.length / 1024).toFixed(1)} KB)`);
+}
+
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+async function runAndCapture(script: string, reportName: string): Promise<number> {
+  const proc = Bun.spawn(["bun", script], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  });
+
+  // Stream stdout to terminal AND collect it
+  const chunks: string[] = [];
+  const reader = proc.stdout.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const text = decoder.decode(value, { stream: true });
+    process.stdout.write(text);
+    chunks.push(text);
+  }
+
+  const exitCode = await proc.exited;
+
+  // Save ANSI-stripped output as plain text report
+  const raw = chunks.join("");
+  const clean = raw.replace(ANSI_RE, "");
+  const path = `${REPORTS_DIR}/${reportName}.txt`;
+  await Bun.write(path, clean);
+  console.log(`  → ${path} (${(clean.length / 1024).toFixed(1)} KB)`);
+
+  return exitCode;
 }
 
 // ─── Step 1: DB ──────────────────────────────────────────────────────────────
@@ -53,88 +97,82 @@ await seedTextIfNeeded(SEED_COUNT);
 await seedUsersAndOrders(10_000, 3);
 console.log("  Seed complete.");
 
-// ─── Steps 3-7: mitata benchmarks (each spawned as subprocess) ───────────────
+// ─── Steps 3-8: mitata benchmarks — stdout captured to .txt reports ──────────
 
 const mitataBenchmarks = [
-  { step: 3, label: "DB driver benchmark (mitata)", script: "src/benchmarks/db-drivers.ts" },
-  { step: 4, label: "DB driver variants (mitata)", script: "src/benchmarks/db-driver-variants.ts" },
-  { step: 5, label: "Serialization benchmark (mitata)", script: "src/benchmarks/serialization.ts" },
-  { step: 6, label: "Write path benchmark (mitata)", script: "src/benchmarks/write-path.ts" },
-  { step: 7, label: "Real-world patterns (mitata)", script: "src/benchmarks/real-world.ts" },
+  { step: 3, label: "DB driver benchmark (mitata)", script: "src/benchmarks/db-drivers.ts", report: "db-drivers" },
+  { step: 4, label: "DB driver variants (mitata)", script: "src/benchmarks/db-driver-variants.ts", report: "db-driver-variants" },
+  { step: 5, label: "Serialization benchmark (mitata)", script: "src/benchmarks/serialization.ts", report: "serialization" },
+  { step: 6, label: "Write path benchmark (mitata)", script: "src/benchmarks/write-path.ts", report: "write-path" },
+  { step: 7, label: "Real-world patterns (mitata)", script: "src/benchmarks/real-world.ts", report: "real-world" },
+  { step: 8, label: "Memory & GC pressure analysis", script: "src/benchmarks/memory-gc.ts", report: "memory-gc" },
 ];
 
 for (const mb of mitataBenchmarks) {
   step(mb.step, mb.label);
-  const proc = Bun.spawn(["bun", mb.script], {
-    stdout: "inherit",
-    stderr: "inherit",
-    env: process.env,
-  });
-  const exitCode = await proc.exited;
+  const exitCode = await runAndCapture(mb.script, mb.report);
   if (exitCode !== 0) {
     console.error(`  WARNING: ${mb.script} exited with code ${exitCode}`);
-  }
-}
-
-// ─── Step 8: Memory & GC pressure ────────────────────────────────────────────
-
-step(8, "Memory & GC pressure analysis");
-{
-  const proc = Bun.spawn(["bun", "src/benchmarks/memory-gc.ts"], {
-    stdout: "inherit",
-    stderr: "inherit",
-    env: process.env,
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    console.error(`  WARNING: memory-gc.ts exited with code ${exitCode}`);
   }
 }
 
 // ─── Step 9: HTTP E2E memory benchmark ───────────────────────────────────────
 
 step(9, "HTTP E2E memory benchmark (5 core strategies)");
-const httpResults: HttpBenchmarkResults = await runHttpBenchmark();
+const httpResults = await runHttpBenchmark();
+await saveReport("http-e2e", httpResults);
 
 // ─── Step 10: Framework overhead ─────────────────────────────────────────────
 
 step(10, "HTTP framework overhead (Elysia vs Bun.serve raw)");
-const frameworkResults: FrameworkResult[] = await runFrameworkBenchmark();
+const frameworkResults = await runFrameworkBenchmark();
+await saveReport("framework", frameworkResults);
 
 // ─── Step 11: Compression ────────────────────────────────────────────────────
 
 step(11, "Compression benchmark (gzip vs uncompressed)");
-const compressionResults: CompressionResult[] = await runCompressionBenchmark();
+const compressionResults = await runCompressionBenchmark();
+await saveReport("compression", compressionResults);
 
 // ─── Step 12: WebSocket ──────────────────────────────────────────────────────
 
 step(12, "WebSocket vs HTTP NDJSON");
-const wsResults: WsResult[] = await runWebSocketBenchmark();
+const wsResults = await runWebSocketBenchmark();
+await saveReport("websocket", wsResults);
 
 // ─── Step 13: Concurrency ────────────────────────────────────────────────────
 
 step(13, "Concurrency & backpressure");
-const concurrencyResults: ConcurrencyResult[] = await runConcurrencyBenchmark();
+const concurrencyResults = await runConcurrencyBenchmark();
+await saveReport("concurrency", concurrencyResults);
 
-// ─── Step 14: Report ─────────────────────────────────────────────────────────
+// ─── Step 14: Bottleneck analysis ─────────────────────────────────────────────
 
-step(14, "Writing RESULTS.md");
-const report = buildMarkdownReport(httpResults, {
+step(14, "Streaming bottleneck analysis");
+const bottleneckResults = await runBottleneckAnalysis();
+await saveReport("bottleneck", bottleneckResults);
+
+// ─── Step 15: Go backpressure ────────────────────────────────────────────────
+
+step(15, "Go pgx TCP backpressure benchmark");
+const goResults = await runGoBackpressureBenchmark();
+await saveReport("go-backpressure", goResults);
+
+// ─── Step 16: Environment metadata ───────────────────────────────────────────
+
+step(16, "Saving environment metadata");
+await saveReport("meta", {
+  generatedAt: new Date().toISOString(),
   platform: `${process.platform} ${process.arch}`,
   runtime: `Bun ${Bun.version}`,
   pgVersion,
   seedCount: SEED_COUNT,
-  frameworkResults,
-  compressionResults,
-  wsResults,
-  concurrencyResults,
 });
-await Bun.write(OUT_FILE, report);
-console.log(`  Written to ${OUT_FILE} (${(report.length / 1024).toFixed(1)} KB)`);
 
 await sql.end();
 await pool.end();
 
 console.log(`\n${"═".repeat(72)}`);
-console.log("  All done! Open RESULTS.md to view the full report.");
+console.log("  All done! JSON reports saved to reports/.");
+console.log("  See REPORT_GUIDE.md for instructions on generating RESULTS.md.");
 console.log(`${"═".repeat(72)}\n`);

@@ -17,7 +17,9 @@
     "bench:framework": "bun src/benchmarks/http-bun-raw.ts",
     "bench:compression": "bun src/benchmarks/http-compression.ts",
     "bench:websocket": "bun src/benchmarks/http-websocket.ts",
-    "bench:concurrency": "bun src/benchmarks/concurrency.ts"
+    "bench:concurrency": "bun src/benchmarks/concurrency.ts",
+    "bench:bottleneck": "bun src/benchmarks/bottleneck-analysis.ts",
+    "bench:go": "bun src/benchmarks/go-backpressure.ts"
   },
   "dependencies": {
     "elysia": "^1.2.25",
