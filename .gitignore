@@ -148,3 +148,4 @@ reports/
 
 # Go build artifacts
 go-bench/go-bench.exe
+go-bench/go-bench.exe~
