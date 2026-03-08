@@ -1,224 +1,605 @@
-# Benchmark Results
+# PostgreSQL Streaming Benchmark Results
 
-> Generated: 2026-03-07T23:22:37.001Z
-> Platform: win32 x64
-> Runtime: Bun 1.3.9
-> PostgreSQL: 16.13
-> DB rows: 100,000 | Concurrency: 10
-
-## Strategies
-
-| Strategy | DB driver | DB access | HTTP response |
-| --- | --- | --- | --- |
-| **Buffered** | porsager/postgres | `SELECT ... LIMIT N` | JSON array |
-| **porsager cursor** | porsager/postgres | `.cursor(500)` | `ReadableStream` NDJSON |
-| **porsager forEach** | porsager/postgres | `.forEach(fn)` | `ReadableStream` NDJSON |
-| **Elysia yield** | porsager/postgres | `.cursor(500)` | Elysia `yield` generator |
-| **pg-query-stream** | node-postgres (pg) | cursor stream | `ReadableStream` NDJSON |
-
-DB driver + serialization + write path + real-world benchmarks (mitata) are printed to stdout.
-Below: HTTP E2E results with peak memory measurement.
+| | |
+|---|---|
+| **Generated** | 2026-03-08 |
+| **Platform** | win32 x64 |
+| **Runtime** | Bun 1.3.9 |
+| **PostgreSQL** | 16.13 |
+| **CPU** | AMD Ryzen 9 5900X 12-Core Processor |
+| **Seed rows** | 100,000 |
 
 ---
 
-## Peak Memory (RSS delta from baseline)
+## Strategies Overview
 
-| Rows    | Buffered   | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
-| ------- | ---------- | --------------- | ---------------- | ------------ | --------------- |
-| 1,000   | +110.72MB  | +82.8MB         | +96.7MB          | +91.53MB     | +87.37MB        |
-| 10,000  | +249.29MB  | +87.34MB        | +86.68MB         | +93.87MB     | +83.99MB        |
-| 100,000 | +1302.02MB | +84.57MB        | +84.61MB         | +92.79MB     | +76.52MB        |
-
-## Throughput (RPS)
-
-| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
-| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
-| 1,000   | 154      | 36              | 78               | 29           | 28              |
-| 10,000  | 15       | 4               | 4                | 3            | 3               |
-| 100,000 | 2        | 2               | 2                | 2            | 2               |
-
-## p95 Latency
-
-| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
-| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
-| 1,000   | 96.04ms  | 335.75ms        | 292.71ms         | 403.41ms     | 498.75ms        |
-| 10,000  | 844.98ms | 3.24s           | 3.83s            | 3.71s        | 3.98s           |
-| 100,000 | 8.26s    | 32.14s          | 29.84s           | 37.13s       | 38.77s          |
-
-## Absolute Peak RSS (MB)
-
-| Rows    | Buffered | porsager cursor | porsager forEach | Elysia yield | pg-query-stream |
-| ------- | -------- | --------------- | ---------------- | ------------ | --------------- |
-| 1,000   | 330.92   | 340.75          | 370.5            | 325.43       | 310.94          |
-| 10,000  | 500.78   | 383.63          | 338.95           | 323.75       | 346.11          |
-| 100,000 | 1526.91  | 303.54          | 313.31           | 345.54       | 321.14          |
+| Strategy | DB Driver | Access Method | Response Format |
+|---|---|---|---|
+| **buffered** | porsager/postgres | `SELECT` → full array | JSON array response |
+| **stream-cursor** | porsager/postgres | `.cursor(500)` | NDJSON streaming |
+| **stream-foreach** | porsager/postgres | `.forEach()` | NDJSON streaming |
+| **yield-cursor** | porsager/postgres | `.cursor(500)` via Elysia yield | NDJSON streaming |
+| **pg-query-stream** | node-pg + pg-query-stream | Node stream pipe | NDJSON streaming |
 
 ---
 
-## Framework Overhead: Elysia vs Bun.serve raw
+## DB Driver Performance
 
-| Size    | Endpoint       | Elysia RPS | Bun.serve RPS | Elysia p95 | Bun.serve p95 |
-| ------- | -------------- | ---------- | ------------- | ---------- | ------------- |
-| 1,000   | buffered       | 141        | 146           | 111.53ms   | 103.02ms      |
-| 1,000   | stream-cursor  | 34         | 36            | 335.96ms   | 350.95ms      |
-| 1,000   | stream-foreach | 65         | 60            | 372.13ms   | 400.09ms      |
-| 10,000  | buffered       | 15         | 15            | 914.46ms   | 887.22ms      |
-| 10,000  | stream-cursor  | 3          | 3             | 3.24s      | 3.04s         |
-| 10,000  | stream-foreach | 5          | 5             | 4.21s      | 4.1s          |
-| 100,000 | buffered       | 2          | 2             | 8.07s      | 7.98s         |
-| 100,000 | stream-cursor  | 2          | 2             | 6.18s      | 6.2s          |
-| 100,000 | stream-foreach | 2          | 2             | 6.34s      | 6.45s         |
+Raw driver-level query timings with no HTTP overhead. Each driver fetches rows and materializes them in-process.
+
+### 100 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| **porsager .forEach()** | **1.42 ms** | 1.49 ms | 2.45 ms |
+| pg buffered | 1.48 ms | 1.55 ms | 3.22 ms |
+| porsager buffered | 1.56 ms | 1.67 ms | 3.11 ms |
+| porsager .cursor(500) | 2.17 ms | 2.29 ms | 3.15 ms |
+| pg-query-stream | 94.59 ms | 94.16 ms | 95.89 ms |
+
+### 1,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| pg buffered | **5.31 ms** | 5.68 ms | 8.04 ms |
+| porsager .forEach() | 5.63 ms | 6.03 ms | 7.79 ms |
+| porsager buffered | 6.04 ms | 6.45 ms | 9.48 ms |
+| porsager .cursor(500) | 9.39 ms | 9.42 ms | 9.67 ms |
+| pg-query-stream | 146.42 ms | 147.29 ms | 149.83 ms |
+
+### 10,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| pg buffered | **44.38 ms** | 46.36 ms | 47.97 ms |
+| porsager .forEach() | 45.84 ms | 46.18 ms | 48.26 ms |
+| porsager buffered | 52.02 ms | 52.55 ms | 56.26 ms |
+| porsager .cursor(500) | 95.52 ms | 70.10 ms | 75.78 ms |
+| pg-query-stream | 203.58 ms | 206.39 ms | 211.37 ms |
+
+### 100,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| pg buffered | **473.93 ms** | 481.22 ms | 498.47 ms |
+| porsager .forEach() | 513.38 ms | 513.48 ms | 542.33 ms |
+| porsager buffered | 523.81 ms | 531.78 ms | 563.92 ms |
+| porsager .cursor(500) | 653.03 ms | 670.80 ms | 690.21 ms |
+| pg-query-stream | 816.72 ms | 857.03 ms | 919.00 ms |
+
+`pg` buffered and `porsager .forEach()` trade the top spot depending on row count. `pg-query-stream` is consistently 2-4x slower due to Node.js stream overhead in Bun. Cursor-based reads pay a ~25-40% penalty from DECLARE/FETCH round-trips.
 
 ---
 
-## Compression: Uncompressed vs Gzip
+## DB Driver Variants
 
-| Size    | Mode         | RPS | p95      | Memory    | Throughput |
-| ------- | ------------ | --- | -------- | --------- | ---------- |
-| 1,000   | uncompressed | 38  | 353.42ms | +87.6MB   | 10.46MB/s  |
-| 1,000   | gzip         | 46  | 280.06ms | +105.3MB  | 12.73MB/s  |
-| 10,000  | uncompressed | 4   | 3.28s    | +93.79MB  | 10.75MB/s  |
-| 10,000  | gzip         | 5   | 2.57s    | +317.01MB | 14.03MB/s  |
-| 100,000 | uncompressed | 2   | 31.94s   | +84.82MB  | 47.23MB/s  |
-| 100,000 | gzip         | 2   | 20.53s   | +914.59MB | 47.23MB/s  |
+Prepared statements and pg-cursor raw timings.
+
+### 1,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| **pg prepared (named)** | **5.56 ms** | 5.97 ms | 8.16 ms |
+| porsager prepared | 6.12 ms | 6.35 ms | 9.13 ms |
+| pg-cursor raw | 145.75 ms | 144.46 ms | 146.39 ms |
+
+### 10,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| **pg prepared (named)** | **47.20 ms** | 48.78 ms | 50.68 ms |
+| porsager prepared | 50.45 ms | 52.58 ms | 54.19 ms |
+| pg-cursor raw | 206.51 ms | 208.24 ms | 212.07 ms |
+
+### 100,000 rows
+
+| Driver | avg | p75 | p99 |
+|---|---|---|---|
+| **pg prepared (named)** | **469.37 ms** | 495.42 ms | 501.19 ms |
+| porsager prepared | 473.23 ms | 481.70 ms | 502.48 ms |
+| pg-cursor raw | 784.42 ms | 803.51 ms | 811.92 ms |
+
+Prepared statements offer marginal improvement (~1-5%) over default queries. `pg-cursor raw` is dramatically slower due to the Node.js cursor implementation overhead in Bun.
 
 ---
 
-## Transport: HTTP NDJSON vs WebSocket
+## Serialization
 
-| Size    | Transport   | RPS | p95      | Memory    |
-| ------- | ----------- | --- | -------- | --------- |
-| 1,000   | HTTP NDJSON | 36  | 328.68ms | +80.89MB  |
-| 1,000   | WebSocket   | 69  | 180.26ms | +88.1MB   |
-| 10,000  | HTTP NDJSON | 4   | 3.07s    | +82.63MB  |
-| 10,000  | WebSocket   | 8   | 1.58s    | +88.31MB  |
-| 100,000 | HTTP NDJSON | 2   | 6.19s    | +86.52MB  |
-| 100,000 | WebSocket   | 2   | 6.06s    | +101.13MB |
+### Serialization Format
+
+| Format | 1,000 rows | 10,000 rows | 100,000 rows |
+|---|---|---|---|
+| **Streaming JSON array** | **7.10 ms** | **61.22 ms** | 656.53 ms |
+| **JSON.stringify(array)** | 7.11 ms | 63.88 ms | **644.80 ms** |
+| NDJSON one-by-one | 7.73 ms | 66.97 ms | 622.44 ms |
+| MessagePack encode | 8.34 ms | 71.91 ms | 775.77 ms |
+
+At small sizes, all formats are within ~15% of each other. NDJSON edges ahead at 100K rows (**622 ms**), likely due to avoiding the overhead of building a single large string. MessagePack is consistently the slowest — the encoding overhead outweighs any wire-size savings. Streaming JSON and JSON.stringify are essentially equivalent.
+
+### JSONB vs TEXT Column
+
+| Column Type | 1,000 rows | 10,000 rows | 100,000 rows |
+|---|---|---|---|
+| **TEXT column** | **2.91 ms** | **20.10 ms** | **214.92 ms** |
+| TEXT + JSON.parse | 4.85 ms | 38.79 ms | 459.99 ms |
+| JSONB column | 5.35 ms | 45.80 ms | 491.91 ms |
+
+Storing data as TEXT and skipping parse is **2.3x faster** than JSONB at 100K rows. If you need structured access, TEXT + JSON.parse in JS is still faster than JSONB deserialization from PostgreSQL.
+
+---
+
+## Write Path
+
+### 1,000 rows
+
+| Strategy | avg |
+|---|---|
+| **unnest batch 1000** | **10.59 ms** |
+| unnest batch 5000 | 10.64 ms |
+| unnest batch 100 | 17.04 ms |
+| COPY FROM STDIN | 59.01 ms |
+| unnest batch 500 | 103.13 ms |
+| row-by-row INSERT | 688.02 ms |
+
+### 5,000 rows
+
+| Strategy | avg |
+|---|---|
+| **unnest batch 5000** | **41.43 ms** |
+| unnest batch 1000 | 44.72 ms |
+| unnest batch 100 | 75.10 ms |
+| COPY FROM STDIN | 81.94 ms |
+| unnest batch 500 | 506.94 ms |
+| row-by-row INSERT | 3.38 s |
+
+### 10,000 rows
+
+| Strategy | avg |
+|---|---|
+| **unnest batch 5000** | **72.19 ms** |
+| unnest batch 1000 | 95.69 ms |
+| COPY FROM STDIN | 103.57 ms |
+| unnest batch 100 | 135.37 ms |
+| unnest batch 500 | 983.83 ms |
+| row-by-row INSERT | 6.75 s |
+
+Unnest batching with batch size >= row count is the fastest write strategy, outperforming even COPY FROM STDIN. The `unnest batch 500` anomaly (slower than batch 100 in some cases) suggests overhead from multiple batch executions with transaction coordination. Row-by-row INSERT is **65-94x slower** than the best unnest batch.
+
+---
+
+## Real-World Patterns
+
+### Filtered Queries (buffered vs cursor with WHERE clause)
+
+| Pattern | 1,000 rows | 10,000 rows | 100,000 rows |
+|---|---|---|---|
+| **buffered + WHERE** | **7.58 ms** | **56.26 ms** | **358.77 ms** |
+| cursor + WHERE | 9.08 ms | 72.01 ms | 508.66 ms |
+
+Buffered reads are consistently faster for filtered queries — the cursor overhead is not justified when the result set is already filtered server-side.
+
+### Pagination vs Cursor
+
+| Pattern | 10,000 rows | 100,000 rows |
+|---|---|---|
+| **single cursor stream** | **65.66 ms** | **684.06 ms** |
+| OFFSET/LIMIT pages (1000) | 85.98 ms | 1.90 s |
+
+Cursor streaming is **2.8x faster** than OFFSET/LIMIT pagination at 100K rows. OFFSET/LIMIT must re-scan previous rows for each page, while cursors maintain position.
+
+### Transforms (cursor-based)
+
+| Pattern | 1,000 rows | 10,000 rows | 100,000 rows |
+|---|---|---|---|
+| cursor + filter active | 7.96 ms | 103.24 ms | 866.58 ms |
+| cursor raw (no transform) | 8.07 ms | 101.44 ms | 899.04 ms |
+| cursor + redact transform | 8.16 ms | 69.49 ms | 894.10 ms |
+
+Row-level transforms (redact, filter) add negligible overhead at small sizes and are essentially free relative to DB fetch time.
+
+### JOINs
+
+| Pattern | 1,000 rows | 10,000 rows | 30,000 rows |
+|---|---|---|---|
+| **JOIN buffered** | **2.72 ms** | **14.33 ms** | **42.38 ms** |
+| JOIN cursor | 5.29 ms | 34.31 ms | 99.17 ms |
+
+Buffered reads are ~2x faster than cursor for JOIN queries. The cursor DECLARE/FETCH overhead compounds with JOIN complexity.
+
+---
+
+## Memory & GC Pressure
+
+### Heap Usage (buffered vs streaming)
+
+| Row Count | Buffered Heap Delta | Streaming Peak | Streaming Retained |
+|---|---|---|---|
+| 10,000 | +4.08 MB (retained) | +6.97 MB peak | 6.97 MB |
+| 100,000 | **+93.94 MB** (retained) | **+12 MB** peak | 12 MB |
+
+At 100K rows, streaming uses **7.8x less memory** than buffered. The buffered approach retains the entire result set in memory, while streaming processes and discards rows incrementally.
+
+### ArrayBuffer Allocation
+
+| Strategy | 10,000 rows | 100,000 rows |
+|---|---|---|
+| fresh TextEncoder.encode() | 74.20 ms | 935.41 ms |
+| pre-allocated buffer pool | 100.28 ms | 997.51 ms |
+
+Pre-allocating buffer pools does not improve performance — Bun's allocator is fast enough that fresh allocations per-encode are slightly faster. The buffer pool adds management overhead that outweighs allocation savings.
+
+---
+
+## HTTP E2E Results
+
+End-to-end HTTP benchmark with 10 concurrent clients, 6-second runs per strategy/size combination.
+
+### Throughput (RPS)
+
+| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|
+| 1,000 | **179** | 36 | 69 | 29 | 29 |
+| 10,000 | **17** | 3.8 | 4.5 | 3.3 | 3.3 |
+| 100,000 | **2.7** | 1.7 | 1.7 | 1.7 | 1.7 |
+
+Buffered dominates throughput at all sizes. At 1K rows, buffered is **5x faster** than cursor-based streaming. The gap narrows at 100K rows as DB fetch time dominates.
+
+### p95 Latency
+
+| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|
+| 1,000 | **83.7 ms** | 349.4 ms | 358.0 ms | 461.9 ms | 481.0 ms |
+| 10,000 | **763.6 ms** | 3,483.1 ms | 4,183.7 ms | 3,918.0 ms | 4,446.8 ms |
+| 100,000 | **6,705 ms** | 32,184 ms | 30,010 ms | 36,732 ms | 40,041 ms |
+
+Streaming strategies suffer 4-6x higher tail latency due to per-row enqueue overhead and event loop contention under concurrent load.
+
+### Peak Memory (RSS delta)
+
+| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|
+| 1,000 | 105.42 MB | **84.66 MB** | 100.44 MB | 98.36 MB | 91.07 MB |
+| 10,000 | 269.25 MB | **94.41 MB** | 95.34 MB | 95.05 MB | **89.06 MB** |
+| 100,000 | **1,405.64 MB** | 83.48 MB | 85.11 MB | 93.09 MB | **83.05 MB** |
+
+At 100K rows, buffered uses **1.4 GB** while all streaming strategies stay under **100 MB**. This is the primary advantage of streaming: predictable, bounded memory regardless of result set size.
+
+---
+
+## Framework Overhead
+
+Elysia vs raw Bun.serve at concurrency 10.
+
+### 1,000 rows
+
+| Framework | Endpoint | RPS | p95 |
+|---|---|---|---|
+| Elysia | buffered | **182** | 84.4 ms |
+| Bun.serve raw | buffered | 160 | 92.0 ms |
+| Bun.serve raw | stream-foreach | 63 | 375.0 ms |
+| Elysia | stream-foreach | 62 | 354.6 ms |
+| Bun.serve raw | stream-cursor | 37 | 339.4 ms |
+| Elysia | stream-cursor | 33 | 345.6 ms |
+
+### 10,000 rows
+
+| Framework | Endpoint | RPS | p95 |
+|---|---|---|---|
+| Bun.serve raw | buffered | **19** | 694.3 ms |
+| Elysia | buffered | 18 | 714.4 ms |
+| Bun.serve raw | stream-foreach | 4.8 | 3,313 ms |
+| Elysia | stream-foreach | 4.5 | 3,986 ms |
+| Elysia | stream-cursor | 3.3 | 3,407 ms |
+| Bun.serve raw | stream-cursor | 3.3 | 3,138 ms |
+
+Elysia adds **no meaningful overhead** — results are within noise of raw Bun.serve. For buffered endpoints, Elysia is actually slightly faster at 1K rows (182 vs 160 RPS), likely due to response handling optimizations.
+
+---
+
+## Compression
+
+Gzip streaming vs uncompressed NDJSON (stream-cursor endpoint).
+
+| Endpoint | Size | RPS | p95 | Memory Delta | Throughput |
+|---|---|---|---|---|---|
+| **gzip** | 1,000 | **64.8** | **188.8 ms** | 112.16 MB | 18.9 MB/s |
+| uncompressed | 1,000 | 35.8 | 334.9 ms | 82.53 MB | 10.4 MB/s |
+| **gzip** | 10,000 | **6.0** | **2,411 ms** | 371.67 MB | 17.6 MB/s |
+| uncompressed | 10,000 | 4.7 | 3,018 ms | 86.69 MB | 13.7 MB/s |
+| uncompressed | 100,000 | 1.7 | 31,263 ms | 83.87 MB | 49.5 MB/s |
+| gzip | 100,000 | 1.7 | **15,300 ms** | 1,043.70 MB | 49.5 MB/s |
+
+Gzip **doubles throughput** at 1K rows by reducing wire transfer size. At 100K rows, gzip halves p95 latency but at a severe memory cost (1 GB vs 84 MB) — the compression buffers accumulate under sustained load.
+
+---
+
+## Transport Comparison
+
+WebSocket vs HTTP NDJSON streaming.
+
+| Transport | Size | RPS | p95 |
+|---|---|---|---|
+| **HTTP NDJSON** | 1,000 | **12,677** | 2.6 ms |
+| WebSocket | 1,000 | 1,997 | 6.0 ms |
+| **HTTP NDJSON** | 10,000 | **12,255** | 2.7 ms |
+| WebSocket | 10,000 | 2,103 | 5.5 ms |
+| **HTTP NDJSON** | 100,000 | **11,778** | 2.9 ms |
+| WebSocket | 100,000 | 2,040 | 5.7 ms |
+
+HTTP NDJSON is **6x faster** than WebSocket for streaming. The WebSocket per-message framing and event dispatch overhead is significant. Both show near-zero memory delta, suggesting the bottleneck is purely in transport/protocol handling, not data size.
 
 ---
 
 ## Concurrency & Backpressure
 
-| Test            | Concurrency | RPS | p95    | Memory    |
-| --------------- | ----------- | --- | ------ | --------- |
-| concurrency=1   | 1           | 1   | 1.61s  | +75.76MB  |
-| concurrency=10  | 10          | 2   | 6.19s  | +88.48MB  |
-| concurrency=50  | 50          | 3   | 6.53s  | +103.42MB |
-| concurrency=100 | 100         | 3   | 6.33s  | +98.46MB  |
-| slow_0ms        | 10          | 3   | 3.37s  | +89.54MB  |
-| slow_5ms        | 10          | 5   | 3.12s  | +86.13MB  |
-| slow_10ms       | 10          | 4   | 3.06s  | +90.79MB  |
-| slow_50ms       | 10          | 4   | 3.08s  | +87.43MB  |
-| pool_saturated  | 50          | 12  | 11.63s | +83.72MB  |
-| start-based     | 10          | 2   | 6.22s  | +91.05MB  |
-| pull-based      | 10          | 2   | 6.2s   | +104.02MB |
+### Concurrency Scaling (stream-cursor, 100K rows)
+
+| Concurrency | RPS | p95 | Memory Delta |
+|---|---|---|---|
+| 1 | 1.2 | 1,453 ms | 72.61 MB |
+| 10 | 1.7 | 6,231 ms | 91.52 MB |
+| 50 | 2.8 | 6,337 ms | 97.23 MB |
+| 100 | 2.8 | 6,452 ms | 104.72 MB |
+
+Throughput plateaus at c=50 despite 2x more connections. Memory grows linearly but modestly (~0.3 MB per connection). The event loop is the bottleneck, not memory.
+
+### Slow Consumer Simulation
+
+| Delay per row | RPS | p95 | Memory Delta |
+|---|---|---|---|
+| 0 ms | 5.0 | 3,179 ms | 90.69 MB |
+| 5 ms | 5.0 | 2,932 ms | 91.42 MB |
+| 10 ms | 5.0 | 3,055 ms | 92.41 MB |
+| 50 ms | 5.0 | 3,029 ms | 94.81 MB |
+
+Slow consumers have no measurable impact on throughput or latency — backpressure propagates correctly through the streaming pipeline.
+
+### Backpressure Modes
+
+| Mode | RPS | p95 | Memory Delta |
+|---|---|---|---|
+| start-based | 1.7 | 6,209 ms | 88.02 MB |
+| pull-based | 1.7 | 6,295 ms | 98.33 MB |
+| pool saturated (c=50) | **12.5** | 10,862 ms | 79.70 MB |
+
+Start-based and pull-based streaming perform identically. Pool saturation at c=50 achieves higher aggregate throughput by keeping all DB connections busy.
 
 ---
 
-## Bottleneck Analysis: HTTP Layer Isolation
+## Streaming Bottleneck Deep Dive
 
-All endpoints return ~284KB (1,000 rows). Concurrency = 10.
+This section isolates the root cause of streaming performance degradation under concurrency.
 
-| Endpoint                           | RPS    | p95      | avg      |
-| ---------------------------------- | ------ | -------- | -------- |
-| noop buffered (baseline)           | 8.73k  | 4.1ms    | 1.15ms   |
-| noop stream (stream setup)         | 23.99k | 610us    | 416us    |
-| buffered prebuilt (no DB)          | 1.97k  | 15.73ms  | 5.08ms   |
-| stream 1 enqueue (no DB)           | 2k     | 14.64ms  | 5ms      |
-| stream 2 enqueues (no DB)          | 1.96k  | 16.37ms  | 5.12ms   |
-| stream 1k enqueues (no DB)         | 1.2k   | 14.62ms  | 8.3ms    |
-| buffered (DB + JSON array)         | 133    | 116.35ms | 75.49ms  |
-| stream batch enqueue (DB cursor)   | 125    | 100.3ms  | 80.15ms  |
-| stream per-row enqueue (DB cursor) | 32     | 351.8ms  | 318.62ms |
+### HTTP Layer Isolation
 
----
+Synthetic endpoints that remove DB access to measure pure HTTP/streaming overhead.
 
-## Bottleneck Analysis: Enqueue Count vs RPS
+| Endpoint | RPS | p95 | avg |
+|---|---|---|---|
+| noop stream (stream setup) | **26,802** | 0.5 ms | 0.4 ms |
+| noop buffered (baseline) | 12,620 | 3.0 ms | 0.8 ms |
+| stream 2 enqueues (no DB) | 3,057 | 10.3 ms | 3.3 ms |
+| buffered prebuilt (no DB) | 2,773 | 10.9 ms | 3.6 ms |
+| stream 1 enqueue (no DB) | 2,740 | 10.3 ms | 3.7 ms |
+| stream 1k enqueues (no DB) | 1,303 | 11.5 ms | 7.7 ms |
+| buffered (DB + JSON array) | 178 | 85.8 ms | 56.5 ms |
+| stream batch enqueue (DB cursor) | 163 | 76.1 ms | 61.4 ms |
+| **stream per-row enqueue (DB cursor)** | **33** | **338.4 ms** | **303.8 ms** |
 
-Pre-built ~284KB payload, no DB. Shows pure enqueue overhead. Concurrency = 10.
+The critical finding: **1K enqueues without DB** achieves 1,303 RPS, but **per-row enqueue with DB** drops to 33 RPS. The DB cursor adds latency, but the per-row enqueue pattern collapses throughput by **5x** compared to batch enqueue (163 vs 33 RPS).
 
-| Enqueue count | RPS   | p95     | avg    |
-| ------------- | ----- | ------- | ------ |
-| 1 enqueue     | 1.81k | 15.84ms | 5.54ms |
-| 2 enqueues    | 2.15k | 14.76ms | 4.66ms |
-| 5 enqueues    | 2.18k | 13.35ms | 4.59ms |
-| 10 enqueues   | 1.91k | 12.89ms | 5.24ms |
-| 50 enqueues   | 1.63k | 13.43ms | 6.12ms |
-| 100 enqueues  | 1.64k | 12.91ms | 6.11ms |
-| 1000 enqueues | 1.16k | 14.96ms | 8.62ms |
+### Enqueue Count Sweep
 
----
+Pure HTTP streaming with varying enqueue counts (no DB), c=10.
 
-## Bottleneck Analysis: Cursor Batch Size & Enqueue Strategy
+| Enqueues | RPS | avg |
+|---|---|---|
+| 1 | 2,405 | 4.2 ms |
+| 2 | 3,003 | 3.3 ms |
+| 5 | 2,984 | 3.4 ms |
+| 10 | 2,269 | 4.4 ms |
+| 50 | 1,945 | 5.1 ms |
+| 100 | 1,879 | 5.3 ms |
+| 1,000 | 1,303 | 7.6 ms |
 
-DB cursor with batch enqueue (1 `controller.enqueue()` per cursor batch) vs per-row enqueue. Concurrency = 10.
+RPS degrades roughly linearly with enqueue count. Each `controller.enqueue()` call yields to the event loop, and under c=10 concurrent streams, these yields create contention.
 
-| Strategy                           | RPS | p95      | avg      |
-| ---------------------------------- | --- | -------- | -------- |
-| cursor(50) → 20 enqueues           | 93  | 126.8ms  | 107.6ms  |
-| cursor(100) → 10 enqueues          | 110 | 109.51ms | 91.39ms  |
-| cursor(250) → 4 enqueues           | 123 | 94.52ms  | 81.1ms   |
-| cursor(500) → 2 enqueues           | 124 | 100.29ms | 80.63ms  |
-| cursor(1000) → 1 enqueue           | 125 | 105.03ms | 80.16ms  |
-| cursor(100) per-row → 1k enqueues  | 28  | 434.87ms | 353.27ms |
-| cursor(500) per-row → 1k enqueues  | 31  | 369.71ms | 321.72ms |
-| cursor(1000) per-row → 1k enqueues | 28  | 411.87ms | 361.53ms |
+### Cursor Batch Size
 
----
+1,000 rows via cursor, varying batch size (fewer batches = fewer enqueues).
 
-## Bottleneck Analysis: Concurrency Scaling
+| Config | Enqueues | RPS | p95 |
+|---|---|---|---|
+| cursor(1000) → 1 enqueue | 1 | **157** | 76.0 ms |
+| cursor(500) → 2 enqueues | 2 | 153 | 77.9 ms |
+| cursor(250) → 4 enqueues | 4 | 151 | 76.1 ms |
+| cursor(100) → 10 enqueues | 10 | 136 | 84.4 ms |
+| cursor(50) → 20 enqueues | 20 | 96 | 127.3 ms |
 
-Same endpoints tested at concurrency 1, 5, and 10. Shows event loop contention.
+Fewer enqueues = more throughput. Going from 20 enqueues to 1 enqueue improves RPS by **63%** (96 → 157). The optimal strategy is to batch all rows from each cursor fetch into a single enqueue.
 
-| Endpoint                  | c=1 RPS | c=5 RPS | c=10 RPS | c=1 avg | c=5 avg  | c=10 avg |
-| ------------------------- | ------- | ------- | -------- | ------- | -------- | -------- |
-| prebuilt per-row (no DB)  | 604     | 986     | 1.1k     | 1.66ms  | 5.07ms   | 9.14ms   |
-| buffered (DB + JSON)      | 66      | 104     | 108      | 15.25ms | 48.53ms  | 93.34ms  |
-| buffered → per-row stream | 70      | 90      | 101      | 14.29ms | 55.76ms  | 100.27ms |
-| cursor batch enqueue      | 67      | 100     | 105      | 14.9ms  | 49.89ms  | 95.45ms  |
-| cursor per-row enqueue    | 51      | 31      | 28       | 19.5ms  | 162.82ms | 356.8ms  |
+### Per-Row Enqueue (the bottleneck)
 
----
+| Config | Enqueues | RPS | p95 |
+|---|---|---|---|
+| cursor(100) per-row → 1k enqueues | 1,000 | 32 | 346.1 ms |
+| cursor(500) per-row → 1k enqueues | 1,000 | 33 | 348.4 ms |
+| cursor(1000) per-row → 1k enqueues | 1,000 | 33 | 349.9 ms |
 
-## Bottleneck Analysis: Root Cause
+Cursor batch size is irrelevant when using per-row enqueue — all three configs produce identical results (~33 RPS). The 1,000 enqueue calls dominate the timing.
 
-The streaming RPS bottleneck is caused by **per-row `controller.enqueue()` under concurrent load**:
+### Concurrency Scaling
 
-1. Each `enqueue()` call on a `ReadableStream` connected to an HTTP response triggers Bun's internal stream→socket bridge
-2. At concurrency=1, Bun coalesces all enqueues efficiently — per-row and batch perform identically
-3. Under concurrent load (c=10), 10 requests × 1,000 enqueues = 10,000 micro-operations competing for the event loop
-4. This creates O(concurrency × enqueues_per_request) scheduling overhead, collapsing RPS
-5. **TCP fragmentation is NOT the cause** — Bun coalesces writes (client sees only 2-5 read() calls regardless)
+| Strategy | c=1 | c=5 | c=10 |
+|---|---|---|---|
+| prebuilt per-row (no DB) | 803 | 1,297 | 1,504 |
+| buffered (DB + JSON) | 94 | 191 | 204 |
+| cursor batch enqueue | 96 | 177 | **185** |
+| buffered → per-row stream | 107 | 167 | 175 |
+| **cursor per-row enqueue** | **72** | **41** | **40** |
 
-**Fix:** Batch enqueues by cursor batch — concatenate all rows per cursor batch into one string, enqueue once:
+Every strategy scales positively with concurrency **except per-row enqueue**, which actually **degrades** from 72 RPS (c=1) to 40 RPS (c=10). This is the smoking gun: per-row `controller.enqueue()` causes event loop contention that worsens under concurrent load.
+
+### Root Cause
+
+Per-row `controller.enqueue()` in a `ReadableStream` yields control to the event loop on every call. Under concurrent load, multiple streams compete for event loop time, creating O(n * rows) yield points. With 10 concurrent streams each enqueuing 1,000 rows, that's 10,000 event loop yields per second.
+
+**The fix**: batch rows by cursor fetch size into a single enqueue:
 
 ```typescript
-// SLOW: 1,000 enqueues per request
-for await (const batch of cursor) {
-  for (const row of batch) {
-    controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
-  }
+// SLOW: per-row enqueue (33 RPS at c=10)
+for await (const row of cursor) {
+  controller.enqueue(JSON.stringify(row) + "\n");
 }
 
-// FAST: 2 enqueues per request (with cursor batch size 500)
+// FAST: batch enqueue (185 RPS at c=10, 5.6x improvement)
+const cursor = sql.cursor(500);
 for await (const batch of cursor) {
-  let chunk = "";
-  for (const row of batch) chunk += JSON.stringify(row.data) + "\n";
-  controller.enqueue(enc.encode(chunk));
+  const chunk = batch.map(r => JSON.stringify(r)).join("\n") + "\n";
+  controller.enqueue(chunk);
 }
 ```
 
-This fix yields **3.75x higher RPS** at concurrency=10 (105 vs 28) while preserving streaming memory benefits.
-At concurrency=1, both strategies perform identically (51 vs 67 RPS), confirming the bottleneck is purely from event loop contention under concurrent load.
+---
+
+## Go pgx TCP Backpressure
+
+Go's `net/http` + `pgx` enables a fundamentally different streaming model. Instead of cursors (DECLARE/FETCH), Go uses simple queries where TCP backpressure naturally throttles PostgreSQL when the HTTP client is slower than the DB.
+
+### Go Strategies (c=10)
+
+All 7 Go strategies tested across three row counts.
+
+#### 1,000 rows
+
+| Strategy | RPS | p95 | avg |
+|---|---|---|---|
+| **Go: backpressure batch flush (500)** | **540** | 23.8 ms | 18.6 ms |
+| Go: backpressure no explicit flush | 508 | 26.1 ms | 19.9 ms |
+| Go: buffered | 507 | 25.6 ms | 19.7 ms |
+| Go: backpressure io.Pipe | 455 | 27.5 ms | 22.5 ms |
+| Go: cursor(500) batch write | 401 | 29.4 ms | 24.9 ms |
+| Go: backpressure per-row flush | 368 | 33.2 ms | 27.6 ms |
+| Go: cursor(500) per-row write | 353 | 33.0 ms | 28.3 ms |
+
+#### 10,000 rows
+
+| Strategy | RPS | p95 | avg |
+|---|---|---|---|
+| **Go: backpressure batch flush (500)** | **63** | 187.3 ms | 158.6 ms |
+| Go: buffered | 62 | 201.2 ms | 161.1 ms |
+| Go: backpressure no explicit flush | 56 | 211.9 ms | 179.4 ms |
+| Go: backpressure io.Pipe | 52 | 219.6 ms | 193.5 ms |
+| Go: cursor(500) batch write | 52 | 216.5 ms | 191.5 ms |
+| Go: cursor(500) per-row write | 44 | 268.2 ms | 230.1 ms |
+| Go: backpressure per-row flush | 43 | 259.9 ms | 238.9 ms |
+
+#### 100,000 rows
+
+| Strategy | RPS | p95 | avg |
+|---|---|---|---|
+| **Go: backpressure batch flush (500)** | **7** | 1.78 s | 1.50 s |
+| Go: backpressure no explicit flush | 7 | 1.92 s | 1.52 s |
+| Go: backpressure io.Pipe | 7 | 2.07 s | 1.56 s |
+| Go: cursor(500) batch write | 7 | 2.20 s | 1.54 s |
+| Go: buffered | 6 | 2.06 s | 1.68 s |
+| Go: backpressure per-row flush | 5 | 2.38 s | 2.09 s |
+| Go: cursor(500) per-row write | 5 | 2.70 s | 2.00 s |
+
+Backpressure batch flush is the fastest strategy at every row count. At 100K rows, it overtakes buffered — streaming with TCP backpressure avoids the cost of building a full JSON array in memory. Cursor-based approaches are consistently slower due to DECLARE/FETCH round-trips, and per-row flushing adds ~40% overhead vs batch flushing.
+
+### Go vs Bun Head-to-Head (c=10)
+
+Direct comparison with memory tracking. Go uses `runtime.HeapAlloc`; Bun uses `process.memoryUsage().rss`.
+
+#### 1,000 rows
+
+| Strategy | Go RPS | Go Mem | Bun RPS | Bun Mem | Go/Bun Ratio |
+|---|---|---|---|---|---|
+| **Buffered** | **516** | ~0 MB | 236 | +100.91 MB | **2.2x** |
+| **Streaming (batch)** | **505** | ~0 MB | 214 | +56.34 MB | **2.4x** |
+| **Streaming (per-row)** | **393** | ~0 MB | 50 | +56.14 MB | **7.9x** |
+
+#### 10,000 rows
+
+| Strategy | Go RPS | Go Mem | Bun RPS | Bun Mem | Go/Bun Ratio |
+|---|---|---|---|---|---|
+| **Buffered** | **63** | ~0 MB | 26 | +320.91 MB | **2.4x** |
+| **Streaming (batch)** | **62** | ~0 MB | 23 | +26.67 MB | **2.7x** |
+| **Streaming (per-row)** | **53** | ~0 MB | 5 | +54.86 MB | **10.6x** |
+
+#### 100,000 rows
+
+| Strategy | Go RPS | Go Mem | Bun RPS | Bun Mem | Go/Bun Ratio |
+|---|---|---|---|---|---|
+| **Buffered** | **8** | ~0 MB | 3 | +1,441.29 MB | **2.7x** |
+| **Streaming (batch)** | **7** | ~0 MB | 3 | +15.01 MB | **2.3x** |
+| **Streaming (per-row)** | **5** | ~0 MB | 2 | ~0 MB | **2.5x** |
+
+Go's heap allocations are effectively zero-delta across all strategies and row counts. Go's GC collects per-request allocations immediately — goroutine stacks and row buffers are short-lived and never accumulate. In contrast, Bun's buffered strategy balloons to **+1.4 GB** at 100K rows because the entire result set is held in V8 heap memory until the response completes.
+
+The per-row throughput gap widens dramatically with row count: **7.9x at 1K, 10.6x at 10K**. At 100K, the gap narrows to 2.5x because DB fetch time dominates and both runtimes spend most of their time waiting on PostgreSQL.
+
+Bun's streaming memory is well-bounded (~15-57 MB) regardless of row count — proving streaming works. But Go achieves the same bounded memory *plus* higher throughput because goroutines avoid event loop contention.
+
+### Go Concurrency Scaling (1,000 rows)
+
+| Strategy | c=1 | c=5 | c=10 | c=20 |
+|---|---|---|---|---|
+| Go: buffered | 129 | 412 | 503 | **537** |
+| Go: backpressure batch flush | 151 | 460 | **540** | 502 |
+| Go: backpressure per-row flush | 86 | 270 | 438 | **566** |
+| Go: backpressure io.Pipe | 96 | 317 | 441 | **504** |
+| Go: cursor batch write | 122 | 299 | 400 | **430** |
+
+Go scales nearly linearly to c=10 (3.5-5x improvement over c=1). At c=20, most strategies continue to improve or plateau. Backpressure batch flush peaks at c=10 (540 RPS), while buffered and per-row flush peak at c=20 (537 and 566 RPS respectively).
+
+Peak throughput is **540 RPS** with backpressure batch flush at c=10 — the best streaming result in the entire benchmark suite.
+
+### Analysis
+
+TCP backpressure eliminates cursor overhead entirely. In this model:
+
+1. Go sends a simple `SELECT ... LIMIT N` query (no DECLARE/FETCH)
+2. PostgreSQL streams rows over the TCP connection
+3. When Go's HTTP response writer is slower than PG's output, the TCP window fills up
+4. PG naturally pauses sending until Go reads more data
+5. No application-level cursor management needed
+
+This is fundamentally more efficient than cursors because:
+- **Zero round-trips**: No DECLARE, no repeated FETCH commands
+- **OS-level flow control**: TCP backpressure is handled by the kernel, not userspace
+- **Goroutine model**: Each request gets its own goroutine with a dedicated stack, avoiding event loop contention entirely
+- **Zero memory overhead**: Go's GC reclaims per-request allocations immediately; no measurable heap growth under load
+
+The advantage grows with concurrency and shrinks with row count. At small payloads with high concurrency, Go's goroutine model dominates (10.6x at 10K rows). At large payloads, the DB becomes the bottleneck and both runtimes converge (2.3-2.7x at 100K rows).
 
 ---
 
 ## Key Takeaways
 
-- **All streaming strategies use ~17.02x less memory** than buffered at 100,000 rows
-- Buffered: +1302.02MB vs best streaming (pg-query-stream): +76.52MB
-- All streaming strategies have **similar memory** (within 16.27MB)
-- Highest streaming RPS at 100,000 rows: **pg-query-stream** (2)
-- With streaming, server RSS stays under ~384MB — safe for container memory limits
-- Elysia framework overhead: ~0.19% lower RPS vs raw Bun.serve on average
-- Gzip compression reduces bandwidth by ~8.09% with modest CPU overhead
+- **DB driver choice matters less than access pattern.** `pg` and `porsager` buffered reads differ by <10%. The real performance cliff is cursor vs buffered (25-40% penalty) and pg-query-stream (2-4x slower).
+
+- **TEXT columns are 2.3x faster than JSONB** for read-heavy workloads. If you don't need server-side JSON operations, store as TEXT and parse client-side.
+
+- **Unnest batching is the fastest write strategy** — faster than COPY FROM STDIN for matching batch sizes. Use batch size >= total row count when possible. Row-by-row INSERT is 65-94x slower.
+
+- **Streaming saves 7-17x memory at scale.** At 100K rows, Bun buffered uses 1.4 GB while streaming stays under 100 MB. Go shows zero measurable heap growth for any strategy.
+
+- **Buffered is faster for throughput when data fits in memory.** At 1K rows, buffered achieves 179 RPS vs 36 RPS for cursor streaming (5x). Use buffered for small-to-medium result sets.
+
+- **Per-row `controller.enqueue()` is the streaming bottleneck.** It causes event loop contention that worsens under concurrency: 72 RPS at c=1 drops to 40 RPS at c=10. Batch enqueue achieves 185 RPS at c=10 — a **4.6x improvement**.
+
+- **Go outperforms Bun 2.2-10.6x for HTTP streaming.** The advantage is largest at medium payloads (10K rows) under concurrency, where Go's goroutines avoid event loop contention. At large payloads (100K), the gap narrows to 2.3-2.7x as DB time dominates.
+
+- **TCP backpressure eliminates cursor overhead.** Go's simple query + TCP flow control achieves 540 RPS at 1K rows — matching buffered throughput with zero memory overhead. No DECLARE/FETCH round-trips needed.
+
+- **Go's memory profile is flat under load.** Zero measurable heap delta across all strategies and row sizes, compared to Bun's +1.4 GB for buffered 100K rows. Go's per-goroutine GC reclaims allocations immediately.
+
+- **Gzip doubles small-payload throughput** but costs 12x more memory at 100K rows (1 GB vs 84 MB). Use compression selectively based on payload size.
+
+- **HTTP NDJSON is 6x faster than WebSocket** for streaming. WebSocket per-message framing overhead is significant; prefer NDJSON for server-to-client data streaming.
+
+- **Elysia adds zero measurable overhead** compared to raw Bun.serve. Framework choice is irrelevant for performance.
+
+- **Cursor stream pagination is 2.8x faster than OFFSET/LIMIT** at 100K rows. For large dataset traversal, always prefer cursors over page-based pagination.

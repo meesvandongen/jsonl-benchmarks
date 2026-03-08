@@ -30,7 +30,7 @@ These contain the raw mitata benchmark output — timing tables with avg/min/max
 | `reports/websocket.json` | WebSocket vs HTTP NDJSON transport | `[{ transport, size, totalRequests, rps, p95, peakRssDeltaMB }]` |
 | `reports/concurrency.json` | Concurrency scaling and backpressure | `[{ test, concurrency, totalRequests, errors, rps, p95, peakRssDeltaMB, baselineRss, peakRss }]` |
 | `reports/bottleneck.json` | Streaming bottleneck analysis — 4 suites | `[{ section, name, concurrency, rps, p95, avgMs }]` sections: `http-layer`, `enqueue-sweep`, `cursor-batch-size`, `cursor-perrow`, `concurrency-scaling` |
-| `reports/go-backpressure.json` | Go pgx TCP backpressure vs Bun — 3 suites | `[{ section, name, concurrency, rps, p95, avgMs }]` sections: `go-strategies`, `go-vs-bun`, `go-concurrency-scaling` |
+| `reports/go-backpressure.json` | Go pgx TCP backpressure vs Bun — 3 suites, multiple sizes | `[{ section, name, size, concurrency, rps, p95, avgMs, peakRssDeltaMB? }]` sections: `go-strategies`, `go-vs-bun`, `go-concurrency-scaling`. Sizes: 1K, 10K, 100K rows. |
 
 ## How to generate RESULTS.md
 
@@ -99,10 +99,10 @@ The most important analytical section. Structure as a narrative:
 
 ### 15. Go pgx TCP Backpressure (from `go-backpressure.json`)
 Another important analytical section:
-- **Go Strategies** — table ranking all Go approaches at c=10
-- **Go vs Bun Head-to-Head** — direct comparison table
+- **Go Strategies** — tables ranking all Go approaches at c=10 for each row size (1K, 10K, 100K), including RPS, p95, and memory delta
+- **Go vs Bun Head-to-Head** — comparison tables at each row size, with memory columns showing RSS delta for both runtimes
 - **Go Concurrency Scaling** — c=1/5/10/20
-- **Analysis** — explain TCP backpressure (no cursor overhead, OS handles flow control), why Go outperforms Bun for streaming (goroutines vs event loop), quantify differences
+- **Analysis** — explain TCP backpressure (no cursor overhead, OS handles flow control), why Go outperforms Bun for streaming (goroutines vs event loop), quantify differences at each row size, compare memory usage patterns
 
 ### 16. Key Takeaways
 8-12 bulleted conclusions drawn from ALL the data:

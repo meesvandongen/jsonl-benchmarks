@@ -18,12 +18,14 @@
  */
 
 export interface GoBackpressureResult {
-  section: string; // "go-strategies" | "go-vs-bun" | "go-concurrency-scaling"
+  section: string;
   name: string;
+  size: number;
   concurrency: number;
   rps: number;
   p95: number;
   avgMs: number;
+  peakRssDeltaMB?: number;
 }
 
 const GO_PORT = "3400";
@@ -31,6 +33,8 @@ const BUN_PORT = "3350";
 const GO_BASE = `http://localhost:${GO_PORT}`;
 const BUN_BASE = `http://localhost:${BUN_PORT}`;
 const BENCH_DURATION_SEC = 6;
+const MEMORY_POLL_MS = 50;
+const SIZES = [1_000, 10_000, 100_000];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +47,39 @@ function fmtMs(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
   if (ms >= 1) return `${ms.toFixed(1)}ms`;
   return `${(ms * 1000).toFixed(0)}us`;
+}
+
+function toMB(bytes: number): number {
+  return Math.round((bytes / 1024 / 1024) * 100) / 100;
+}
+
+function startMemoryPoller(base: string) {
+  const rssValues: number[] = [];
+  let running = true;
+  const poll = async () => {
+    while (running) {
+      try {
+        const res = await fetch(`${base}/memory`);
+        const data: any = await res.json();
+        if (data.rss) rssValues.push(data.rss);
+      } catch {}
+      await Bun.sleep(MEMORY_POLL_MS);
+    }
+  };
+  poll();
+  return { stop: () => { running = false; return rssValues; } };
+}
+
+async function getBaselineRss(base: string): Promise<number> {
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(`${base}/memory`);
+      const data: any = await res.json();
+      if (data.rss) return data.rss;
+    } catch {}
+    await Bun.sleep(200);
+  }
+  return 0;
 }
 
 async function driveLoad(
@@ -102,8 +139,9 @@ async function driveLoad(
   };
 }
 
-function printRow(name: string, r: { rps: number; p95: number; avgMs: number }, pad = 48) {
-  console.log(`    ${name.padEnd(pad)} ${String(r.rps).padStart(6)}  ${fmtMs(r.p95).padStart(10)}  ${fmtMs(r.avgMs).padStart(10)}`);
+function printRow(name: string, r: { rps: number; p95: number; avgMs: number; peakRssDeltaMB?: number }, pad = 44) {
+  const mem = r.peakRssDeltaMB != null ? `  +${String(r.peakRssDeltaMB).padStart(7)}MB` : "";
+  console.log(`    ${name.padEnd(pad)} ${String(r.rps).padStart(6)}  ${fmtMs(r.p95).padStart(10)}  ${fmtMs(r.avgMs).padStart(10)}${mem}`);
 }
 
 async function waitForServer(base: string, label: string, maxWait = 15000): Promise<boolean> {
@@ -151,14 +189,9 @@ export async function runGoBackpressureBenchmark(): Promise<GoBackpressureResult
   }
 
   try {
-    // ── Suite 1: Go strategies at c=10 ───────────────────────────────────
-    console.log("\n  Suite 1: Go pgx Strategies (1k rows, c=10)");
-    console.log("  " + "─".repeat(72));
-    console.log(`    ${"Endpoint".padEnd(48)} ${"RPS".padStart(6)}  ${"p95".padStart(10)}  ${"avg".padStart(10)}`);
-    console.log("    " + "─".repeat(78));
-
+    // ── Suite 1: Go strategies at c=10, multiple sizes ──────────────────
     const goStrategies = [
-      { name: "Go: buffered (SELECT all → JSON)", path: "/buffered" },
+      { name: "Go: buffered", path: "/buffered" },
       { name: "Go: backpressure per-row flush", path: "/backpressure" },
       { name: "Go: backpressure batch flush (500)", path: "/backpressure-batch" },
       { name: "Go: backpressure no explicit flush", path: "/backpressure-nofflush" },
@@ -167,37 +200,55 @@ export async function runGoBackpressureBenchmark(): Promise<GoBackpressureResult
       { name: "Go: cursor(500) batch write", path: "/cursor-batch" },
     ];
 
-    for (const s of goStrategies) {
-      const r = await driveLoad(`${GO_BASE}${s.path}?limit=1000`, 10, BENCH_DURATION_SEC);
-      results.push({ section: "go-strategies", name: s.name, concurrency: 10, ...r });
-      printRow(s.name, r);
+    for (const size of SIZES) {
+      console.log(`\n  Suite 1: Go pgx Strategies (${size.toLocaleString()} rows, c=10)`);
+      console.log("  " + "─".repeat(72));
+      console.log(`    ${"Endpoint".padEnd(44)} ${"RPS".padStart(6)}  ${"p95".padStart(10)}  ${"avg".padStart(10)}  ${"Mem".padStart(10)}`);
+      console.log("    " + "─".repeat(84));
+
+      for (const s of goStrategies) {
+        const baselineRss = await getBaselineRss(GO_BASE);
+        const poller = startMemoryPoller(GO_BASE);
+        const r = await driveLoad(`${GO_BASE}${s.path}?limit=${size}`, 10, BENCH_DURATION_SEC);
+        const rssValues = poller.stop();
+        const peakRss = rssValues.length > 0 ? Math.max(...rssValues) : baselineRss;
+        const peakRssDeltaMB = toMB(peakRss - baselineRss);
+        const result = { section: "go-strategies", name: s.name, size, concurrency: 10, ...r, peakRssDeltaMB };
+        results.push(result);
+        printRow(s.name, result);
+      }
     }
 
-    // ── Suite 2: Go vs Bun head-to-head ──────────────────────────────────
-    console.log("\n  Suite 2: Go vs Bun — Head to Head (1k rows, c=10)");
-    console.log("  " + "─".repeat(72));
-    console.log(`    ${"Endpoint".padEnd(48)} ${"RPS".padStart(6)}  ${"p95".padStart(10)}  ${"avg".padStart(10)}`);
-    console.log("    " + "─".repeat(78));
+    // ── Suite 2: Go vs Bun head-to-head, multiple sizes ─────────────────
+    for (const size of SIZES) {
+      console.log(`\n  Suite 2: Go vs Bun — Head to Head (${size.toLocaleString()} rows, c=10)`);
+      console.log("  " + "─".repeat(72));
+      console.log(`    ${"Endpoint".padEnd(44)} ${"RPS".padStart(6)}  ${"p95".padStart(10)}  ${"avg".padStart(10)}  ${"Mem".padStart(10)}`);
+      console.log("    " + "─".repeat(84));
 
-    const headToHead = [
-      { name: "Go: buffered", url: `${GO_BASE}/buffered?limit=1000` },
-      { name: "Bun: buffered", url: `${BUN_BASE}/buffered` },
-      { name: "Go: backpressure batch flush", url: `${GO_BASE}/backpressure-batch?limit=1000` },
-      { name: "Bun: cursor batch enqueue", url: `${BUN_BASE}/stream-batched` },
-      { name: "Go: backpressure per-row flush", url: `${GO_BASE}/backpressure?limit=1000` },
-      { name: "Bun: cursor per-row enqueue", url: `${BUN_BASE}/stream-per-row` },
-      { name: "Go: cursor(500) batch write", url: `${GO_BASE}/cursor-batch?limit=1000` },
-      { name: "Go: backpressure no flush", url: `${GO_BASE}/backpressure-nofflush?limit=1000` },
-      { name: "Go: backpressure io.Pipe", url: `${GO_BASE}/backpressure-pipe?limit=1000` },
-    ];
+      const headToHead = [
+        { name: "Go: buffered", url: `${GO_BASE}/buffered?limit=${size}`, memBase: GO_BASE },
+        { name: "Bun: buffered", url: `${BUN_BASE}/buffered?limit=${size}`, memBase: BUN_BASE },
+        { name: "Go: backpressure batch flush", url: `${GO_BASE}/backpressure-batch?limit=${size}`, memBase: GO_BASE },
+        { name: "Bun: cursor batch enqueue", url: `${BUN_BASE}/stream-batched?limit=${size}`, memBase: BUN_BASE },
+        { name: "Go: backpressure per-row flush", url: `${GO_BASE}/backpressure?limit=${size}`, memBase: GO_BASE },
+        { name: "Bun: cursor per-row enqueue", url: `${BUN_BASE}/stream-per-row?limit=${size}`, memBase: BUN_BASE },
+      ];
 
-    for (const t of headToHead) {
-      const r = await driveLoad(t.url, 10, BENCH_DURATION_SEC);
-      results.push({ section: "go-vs-bun", name: t.name, concurrency: 10, ...r });
-      printRow(t.name, r);
+      for (const t of headToHead) {
+        const baselineRss = await getBaselineRss(t.memBase);
+        const poller = startMemoryPoller(t.memBase);
+        const r = await driveLoad(t.url, 10, BENCH_DURATION_SEC);
+        const rssValues = poller.stop();
+        const peakRss = rssValues.length > 0 ? Math.max(...rssValues) : baselineRss;
+        const peakRssDeltaMB = toMB(peakRss - baselineRss);
+        const result = { section: "go-vs-bun", name: t.name, size, concurrency: 10, ...r, peakRssDeltaMB };
+        results.push(result);
+        printRow(t.name, result);
+      }
     }
 
-    // ── Suite 3: Concurrency scaling (Go best strategies) ────────────────
+    // ── Suite 3: Concurrency scaling (Go best strategies, 1k rows) ──────
     console.log("\n  Suite 3: Go Concurrency Scaling (1k rows)");
     console.log("  " + "─".repeat(72));
 
@@ -213,7 +264,7 @@ export async function runGoBackpressureBenchmark(): Promise<GoBackpressureResult
       console.log(`\n    concurrency = ${c}:`);
       for (const ep of scalingEndpoints) {
         const r = await driveLoad(ep.url, c, BENCH_DURATION_SEC);
-        results.push({ section: "go-concurrency-scaling", name: ep.name, concurrency: c, ...r });
+        results.push({ section: "go-concurrency-scaling", name: ep.name, size: 1000, concurrency: c, ...r });
         printRow(ep.name, r);
       }
     }

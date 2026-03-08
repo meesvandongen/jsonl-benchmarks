@@ -78,15 +78,16 @@ Bun.serve({
       return new Response(new ReadableStream({ start(c) { for (const ch of prebuiltChunks) c.enqueue(ch); c.close(); } }), { headers: { "Content-Type": "application/x-ndjson" } });
     }
 
-    // Real DB endpoints
+    // Real DB endpoints (support ?limit= for variable sizes)
+    const limit = parseInt(url.searchParams.get("limit") ?? String(SIZE));
     if (p === "/buffered") {
-      const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${SIZE}`;
+      const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${limit}`;
       return new Response(JSON.stringify(rows.map((r: any) => r.data)), { headers: { "Content-Type": "application/json" } });
     }
     if (p === "/stream-batched") {
       return new Response(new ReadableStream({
         async start(controller) {
-          const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${SIZE}`.cursor(500);
+          const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${limit}`.cursor(500);
           for await (const batch of cursor) {
             let chunk = "";
             for (const row of batch) chunk += JSON.stringify(row.data) + "\n";
@@ -99,7 +100,7 @@ Bun.serve({
     if (p === "/stream-per-row") {
       return new Response(new ReadableStream({
         async start(controller) {
-          const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${SIZE}`.cursor(500);
+          const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${limit}`.cursor(500);
           for await (const batch of cursor) {
             for (const row of batch) controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
           }

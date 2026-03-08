@@ -156,10 +156,17 @@ async function startServer(): Promise<{ proc: ReturnType<typeof Bun.spawn>; base
     } catch {}
     await Bun.sleep(500);
   }
-  await Bun.sleep(300);
-  const res = await fetch(`${BASE}/memory`);
-  const mem: any = await res.json();
-  return { proc, baselineRss: mem.rss };
+  await Bun.sleep(500);
+  let mem: any = null;
+  for (let i = 0; i < 5; i++) {
+    try {
+      const res = await fetch(`${BASE}/memory`);
+      mem = await res.json();
+      if (mem?.rss) break;
+    } catch {}
+    await Bun.sleep(300);
+  }
+  return { proc, baselineRss: mem?.rss ?? 0 };
 }
 
 function fmtMs(ms: number): string {

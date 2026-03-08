@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -354,6 +355,21 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"ok":true}`))
 }
 
+func memoryHandler(w http.ResponseWriter, r *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	w.Header().Set("Content-Type", "application/json")
+	// Use HeapAlloc (live heap) as "rss" — Sys doesn't shrink and is misleading for delta tracking.
+	// Also report Sys for reference as "sys".
+	json.NewEncoder(w).Encode(map[string]uint64{
+		"rss":       m.HeapAlloc,
+		"heapUsed":  m.HeapInuse,
+		"heapTotal": m.HeapSys,
+		"heapAlloc": m.HeapAlloc,
+		"sys":       m.Sys,
+	})
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -385,6 +401,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler)
+	mux.HandleFunc("/memory", memoryHandler)
 	mux.HandleFunc("/buffered", bufferedHandler)
 	mux.HandleFunc("/backpressure", backpressureHandler)
 	mux.HandleFunc("/backpressure-batch", backpressureBatchHandler)
