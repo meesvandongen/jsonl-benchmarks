@@ -7,17 +7,18 @@
  *  3. DB driver benchmark (mitata) → reports/db-drivers.txt
  *  4. DB driver variants (mitata) → reports/db-driver-variants.txt
  *  5. Serialization benchmark (mitata) → reports/serialization.txt
- *  6. Write path benchmark (mitata) → reports/write-path.txt
- *  7. Real-world patterns (mitata) → reports/real-world.txt
- *  8. Memory & GC pressure analysis → reports/memory-gc.txt
- *  9. HTTP E2E memory benchmark → reports/http-e2e.json
- * 10. HTTP framework overhead → reports/framework.json
- * 11. HTTP compression benchmark → reports/compression.json
- * 12. HTTP WebSocket vs NDJSON → reports/websocket.json
- * 13. Concurrency & backpressure → reports/concurrency.json
- * 14. Streaming bottleneck analysis → reports/bottleneck.json
- * 15. Go backpressure benchmark → reports/go-backpressure.json
- * 16. Save environment metadata → reports/meta.json
+ *  6. JSON packages benchmark (mitata) → reports/json-packages.txt
+ *  7. Write path benchmark (mitata) → reports/write-path.txt
+ *  8. Real-world patterns (mitata) → reports/real-world.txt
+ *  9. Memory & GC pressure analysis → reports/memory-gc.txt
+ * 10. HTTP E2E memory benchmark → reports/http-e2e.json
+ * 11. HTTP framework overhead → reports/framework.json
+ * 12. HTTP compression benchmark → reports/compression.json
+ * 13. HTTP WebSocket vs NDJSON → reports/websocket.json
+ * 14. Concurrency & backpressure → reports/concurrency.json
+ * 15. Streaming bottleneck analysis → reports/bottleneck.json
+ * 16. Go backpressure benchmark → reports/go-backpressure.json
+ * 17. Save environment metadata → reports/meta.json
  */
 
 import { sql, pool, waitForDb } from "./db/client";
@@ -32,7 +33,7 @@ import { runGoBackpressureBenchmark } from "./benchmarks/go-backpressure";
 
 const REPORTS_DIR = "reports";
 const SEED_COUNT = 100_000;
-const TOTAL_STEPS = 16;
+const TOTAL_STEPS = 17;
 
 function step(n: number, msg: string) {
   console.log(`\n${"─".repeat(72)}`);
@@ -103,9 +104,10 @@ const mitataBenchmarks = [
   { step: 3, label: "DB driver benchmark (mitata)", script: "src/benchmarks/db-drivers.ts", report: "db-drivers" },
   { step: 4, label: "DB driver variants (mitata)", script: "src/benchmarks/db-driver-variants.ts", report: "db-driver-variants" },
   { step: 5, label: "Serialization benchmark (mitata)", script: "src/benchmarks/serialization.ts", report: "serialization" },
-  { step: 6, label: "Write path benchmark (mitata)", script: "src/benchmarks/write-path.ts", report: "write-path" },
-  { step: 7, label: "Real-world patterns (mitata)", script: "src/benchmarks/real-world.ts", report: "real-world" },
-  { step: 8, label: "Memory & GC pressure analysis", script: "src/benchmarks/memory-gc.ts", report: "memory-gc" },
+  { step: 6, label: "JSON packages benchmark (mitata)", script: "src/benchmarks/json-packages.ts", report: "json-packages" },
+  { step: 7, label: "Write path benchmark (mitata)", script: "src/benchmarks/write-path.ts", report: "write-path" },
+  { step: 8, label: "Real-world patterns (mitata)", script: "src/benchmarks/real-world.ts", report: "real-world" },
+  { step: 9, label: "Memory & GC pressure analysis", script: "src/benchmarks/memory-gc.ts", report: "memory-gc" },
 ];
 
 for (const mb of mitataBenchmarks) {
@@ -118,49 +120,49 @@ for (const mb of mitataBenchmarks) {
 
 // ─── Step 9: HTTP E2E memory benchmark ───────────────────────────────────────
 
-step(9, "HTTP E2E memory benchmark (5 core strategies)");
+step(10, "HTTP E2E memory benchmark (5 core strategies)");
 const httpResults = await runHttpBenchmark();
 await saveReport("http-e2e", httpResults);
 
 // ─── Step 10: Framework overhead ─────────────────────────────────────────────
 
-step(10, "HTTP framework overhead (Elysia vs Bun.serve raw)");
+step(11, "HTTP framework overhead (Elysia vs Bun.serve raw)");
 const frameworkResults = await runFrameworkBenchmark();
 await saveReport("framework", frameworkResults);
 
 // ─── Step 11: Compression ────────────────────────────────────────────────────
 
-step(11, "Compression benchmark (gzip vs uncompressed)");
+step(12, "Compression benchmark (gzip vs uncompressed)");
 const compressionResults = await runCompressionBenchmark();
 await saveReport("compression", compressionResults);
 
 // ─── Step 12: WebSocket ──────────────────────────────────────────────────────
 
-step(12, "WebSocket vs HTTP NDJSON");
+step(13, "WebSocket vs HTTP NDJSON");
 const wsResults = await runWebSocketBenchmark();
 await saveReport("websocket", wsResults);
 
 // ─── Step 13: Concurrency ────────────────────────────────────────────────────
 
-step(13, "Concurrency & backpressure");
+step(14, "Concurrency & backpressure");
 const concurrencyResults = await runConcurrencyBenchmark();
 await saveReport("concurrency", concurrencyResults);
 
 // ─── Step 14: Bottleneck analysis ─────────────────────────────────────────────
 
-step(14, "Streaming bottleneck analysis");
+step(15, "Streaming bottleneck analysis");
 const bottleneckResults = await runBottleneckAnalysis();
 await saveReport("bottleneck", bottleneckResults);
 
 // ─── Step 15: Go backpressure ────────────────────────────────────────────────
 
-step(15, "Go pgx TCP backpressure benchmark");
+step(16, "Go pgx TCP backpressure benchmark");
 const goResults = await runGoBackpressureBenchmark();
 await saveReport("go-backpressure", goResults);
 
 // ─── Step 16: Environment metadata ───────────────────────────────────────────
 
-step(16, "Saving environment metadata");
+step(17, "Saving environment metadata");
 await saveReport("meta", {
   generatedAt: new Date().toISOString(),
   platform: `${process.platform} ${process.arch}`,
