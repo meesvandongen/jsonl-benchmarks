@@ -7,9 +7,10 @@
  *   GET /buffered?limit=N    — porsager SELECT all, JSON array
  *   GET /stream-cursor?limit=N  — porsager .cursor(500) + ReadableStream NDJSON
  *   GET /stream-foreach?limit=N — porsager .forEach() + ReadableStream NDJSON
+ *   GET /mvd-stream?limit=N         — @mvd/postgres .stream() + ReadableStream NDJSON
  */
 
-import { sql } from "./db/client";
+import { sql, mvdSql } from "./db/client";
 
 const PORT = parseInt(process.env.PORT ?? "3000");
 const enc = new TextEncoder();
@@ -80,6 +81,26 @@ Bun.serve({
               .forEach((row: { data: unknown }) => {
                 controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
               });
+            controller.close();
+          } catch (e) {
+            controller.error(e);
+          }
+        },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "application/x-ndjson" },
+      });
+    }
+
+    // GET /mvd-stream?limit=N — @mvd/postgres .stream() + ReadableStream NDJSON
+    if (pathname === "/mvd-stream") {
+      const limit = parseInt(searchParams.get("limit") ?? "1000");
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const row of mvdSql`SELECT data FROM records ORDER BY id LIMIT ${limit}`.stream()) {
+              controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
+            }
             controller.close();
           } catch (e) {
             controller.error(e);

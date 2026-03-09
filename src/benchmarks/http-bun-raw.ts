@@ -16,6 +16,7 @@ const ENDPOINTS = [
   { name: "buffered", path: "buffered", isStream: false },
   { name: "stream-cursor", path: "stream-cursor", isStream: true },
   { name: "stream-foreach", path: "stream-foreach", isStream: true },
+  { name: "mvd-stream", path: "mvd-stream", isStream: true },
 ] as const;
 
 export interface FrameworkResult {

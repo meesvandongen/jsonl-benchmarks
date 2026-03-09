@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generated** | 2026-03-08 |
+| **Generated** | 2026-03-09 |
 | **Platform** | win32 x64 |
 | **Runtime** | Bun 1.3.9 |
 | **PostgreSQL** | 16.13 |
@@ -18,6 +18,7 @@
 | **buffered** | porsager/postgres | `SELECT` → full array | JSON array response |
 | **stream-cursor** | porsager/postgres | `.cursor(500)` | NDJSON streaming |
 | **stream-foreach** | porsager/postgres | `.forEach()` | NDJSON streaming |
+| **mvd-stream** | @mvd/postgres | `.stream()` | NDJSON streaming |
 | **yield-cursor** | porsager/postgres | `.cursor(500)` via Elysia yield | NDJSON streaming |
 | **pg-query-stream** | node-pg + pg-query-stream | Node stream pipe | NDJSON streaming |
 
@@ -31,43 +32,55 @@ Raw driver-level query timings with no HTTP overhead. Each driver fetches rows a
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| **porsager .forEach()** | **1.42 ms** | 1.49 ms | 2.45 ms |
-| pg buffered | 1.48 ms | 1.55 ms | 3.22 ms |
-| porsager buffered | 1.56 ms | 1.67 ms | 3.11 ms |
-| porsager .cursor(500) | 2.17 ms | 2.29 ms | 3.15 ms |
-| pg-query-stream | 94.59 ms | 94.16 ms | 95.89 ms |
+| **porsager .forEach()** | **1.05 ms** | 1.09 ms | 1.73 ms |
+| mvd .stream() | 1.07 ms | 1.09 ms | **1.61 ms** |
+| mvd buffered | 1.07 ms | 1.10 ms | 1.93 ms |
+| pg buffered | 1.10 ms | 1.15 ms | 2.01 ms |
+| porsager buffered | 1.11 ms | 1.15 ms | 1.81 ms |
+| mvd .cursor(500) | 1.56 ms | 1.62 ms | 2.49 ms |
+| porsager .cursor(500) | 1.62 ms | 1.69 ms | 2.30 ms |
+| pg-query-stream | 95.87 ms | 95.99 ms | 96.23 ms |
 
 ### 1,000 rows
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| pg buffered | **5.31 ms** | 5.68 ms | 8.04 ms |
-| porsager .forEach() | 5.63 ms | 6.03 ms | 7.79 ms |
-| porsager buffered | 6.04 ms | 6.45 ms | 9.48 ms |
-| porsager .cursor(500) | 9.39 ms | 9.42 ms | 9.67 ms |
-| pg-query-stream | 146.42 ms | 147.29 ms | 149.83 ms |
+| **pg buffered** | **4.08 ms** | 4.42 ms | 5.88 ms |
+| porsager .forEach() | 4.23 ms | 4.71 ms | 5.88 ms |
+| mvd buffered | 4.25 ms | 4.75 ms | 6.02 ms |
+| mvd .stream() | 4.30 ms | 4.77 ms | 5.98 ms |
+| porsager buffered | 4.42 ms | 4.97 ms | 6.76 ms |
+| porsager .cursor(500) | 5.83 ms | 6.21 ms | 7.86 ms |
+| mvd .cursor(500) | 6.44 ms | 7.06 ms | 8.27 ms |
+| pg-query-stream | 149.32 ms | 149.43 ms | 152.44 ms |
 
 ### 10,000 rows
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| pg buffered | **44.38 ms** | 46.36 ms | 47.97 ms |
-| porsager .forEach() | 45.84 ms | 46.18 ms | 48.26 ms |
-| porsager buffered | 52.02 ms | 52.55 ms | 56.26 ms |
-| porsager .cursor(500) | 95.52 ms | 70.10 ms | 75.78 ms |
-| pg-query-stream | 203.58 ms | 206.39 ms | 211.37 ms |
+| **pg buffered** | **35.57 ms** | 37.85 ms | 38.85 ms |
+| porsager .forEach() | 36.59 ms | 38.09 ms | 41.30 ms |
+| mvd buffered | 37.39 ms | 39.34 ms | 42.42 ms |
+| porsager buffered | 38.64 ms | 41.04 ms | 42.61 ms |
+| mvd .stream() | 41.38 ms | 43.64 ms | 44.97 ms |
+| porsager .cursor(500) | 51.24 ms | 52.36 ms | 53.16 ms |
+| mvd .cursor(500) | 52.94 ms | 53.89 ms | 55.02 ms |
+| pg-query-stream | 219.95 ms | 196.42 ms | 213.85 ms |
 
 ### 100,000 rows
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| pg buffered | **473.93 ms** | 481.22 ms | 498.47 ms |
-| porsager .forEach() | 513.38 ms | 513.48 ms | 542.33 ms |
-| porsager buffered | 523.81 ms | 531.78 ms | 563.92 ms |
-| porsager .cursor(500) | 653.03 ms | 670.80 ms | 690.21 ms |
-| pg-query-stream | 816.72 ms | 857.03 ms | 919.00 ms |
+| **porsager .forEach()** | **371.42 ms** | 378.02 ms | 385.57 ms |
+| pg buffered | 377.81 ms | 394.90 ms | 397.66 ms |
+| porsager buffered | 384.04 ms | 394.20 ms | 411.02 ms |
+| mvd buffered | 414.29 ms | 408.88 ms | 479.30 ms |
+| mvd .stream() | 432.83 ms | 449.49 ms | 470.82 ms |
+| porsager .cursor(500) | 627.30 ms | 587.87 ms | 857.09 ms |
+| mvd .cursor(500) | 646.65 ms | 682.00 ms | 783.76 ms |
+| pg-query-stream | 678.33 ms | 669.66 ms | 691.68 ms |
 
-`pg` buffered and `porsager .forEach()` trade the top spot depending on row count. `pg-query-stream` is consistently 2-4x slower due to Node.js stream overhead in Bun. Cursor-based reads pay a ~25-40% penalty from DECLARE/FETCH round-trips.
+Across this run, `pg buffered` leads at 1K and 10K, while `porsager .forEach()` leads at 100K. `@mvd/postgres .stream()` tracks close to buffered read paths and is materially faster than cursor-based paths, while `pg-query-stream` remains the slowest.
 
 ---
 
@@ -79,27 +92,30 @@ Prepared statements and pg-cursor raw timings.
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| **pg prepared (named)** | **5.56 ms** | 5.97 ms | 8.16 ms |
-| porsager prepared | 6.12 ms | 6.35 ms | 9.13 ms |
-| pg-cursor raw | 145.75 ms | 144.46 ms | 146.39 ms |
+| **pg prepared (named)** | **4.10 ms** | 4.44 ms | 5.75 ms |
+| mvd prepared | 4.42 ms | 4.88 ms | 6.57 ms |
+| porsager prepared | 4.46 ms | 4.99 ms | 6.37 ms |
+| pg-cursor raw | 148.77 ms | 148.53 ms | 150.80 ms |
 
 ### 10,000 rows
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| **pg prepared (named)** | **47.20 ms** | 48.78 ms | 50.68 ms |
-| porsager prepared | 50.45 ms | 52.58 ms | 54.19 ms |
-| pg-cursor raw | 206.51 ms | 208.24 ms | 212.07 ms |
+| **pg prepared (named)** | **34.52 ms** | 35.95 ms | 41.64 ms |
+| porsager prepared | 38.45 ms | 41.44 ms | 44.21 ms |
+| mvd prepared | 40.44 ms | 41.85 ms | 45.50 ms |
+| pg-cursor raw | 192.24 ms | 196.30 ms | 196.70 ms |
 
 ### 100,000 rows
 
 | Driver | avg | p75 | p99 |
 |---|---|---|---|
-| **pg prepared (named)** | **469.37 ms** | 495.42 ms | 501.19 ms |
-| porsager prepared | 473.23 ms | 481.70 ms | 502.48 ms |
-| pg-cursor raw | 784.42 ms | 803.51 ms | 811.92 ms |
+| **pg prepared (named)** | **336.33 ms** | 345.61 ms | 354.37 ms |
+| mvd prepared | 382.79 ms | 399.89 ms | 405.11 ms |
+| porsager prepared | 397.96 ms | 392.97 ms | 511.99 ms |
+| pg-cursor raw | 652.41 ms | 659.69 ms | 663.31 ms |
 
-Prepared statements offer marginal improvement (~1-5%) over default queries. `pg-cursor raw` is dramatically slower due to the Node.js cursor implementation overhead in Bun.
+Prepared statements are consistently strong, with `pg prepared (named)` winning all tested sizes in this run. `mvd prepared` is competitive with `porsager prepared`, and both are much faster than `pg-cursor raw`.
 
 ---
 
@@ -212,21 +228,60 @@ Buffered reads are ~2x faster than cursor for JOIN queries. The cursor DECLARE/F
 
 ### Heap Usage (buffered vs streaming)
 
-| Row Count | Buffered Heap Delta | Streaming Peak | Streaming Retained |
+| Row Count | Strategy | Peak Heap Delta | Retained After GC |
 |---|---|---|---|
-| 10,000 | +4.08 MB (retained) | +6.97 MB peak | 6.97 MB |
-| 100,000 | **+93.94 MB** (retained) | **+12 MB** peak | 12 MB |
+| 10,000 | buffered | +5.9 MB | +5.9 MB |
+| 10,000 | porsager cursor | +0 MB | +0 MB |
+| 10,000 | **mvd .stream()** | **+0 MB** | **+0 MB** |
+| 100,000 | buffered | **+72.34 MB** | **+72.34 MB** |
+| 100,000 | porsager cursor | +0 MB | +0 MB |
+| 100,000 | **mvd .stream()** | **+3.28 MB** | **+3.28 MB** |
 
-At 100K rows, streaming uses **7.8x less memory** than buffered. The buffered approach retains the entire result set in memory, while streaming processes and discards rows incrementally.
+`@mvd/postgres .stream()` stays low-memory while streaming. At 100K rows, buffered retains **72.34 MB**, while `mvd .stream()` retains only **3.28 MB** after GC — over **22x lower** retained heap in this run.
 
 ### ArrayBuffer Allocation
 
 | Strategy | 10,000 rows | 100,000 rows |
 |---|---|---|
-| fresh TextEncoder.encode() | 74.20 ms | 935.41 ms |
-| pre-allocated buffer pool | 100.28 ms | 997.51 ms |
+| fresh TextEncoder.encode() | 54.21 ms | 607.45 ms |
+| pre-allocated buffer pool | 55.97 ms | 616.85 ms |
 
-Pre-allocating buffer pools does not improve performance — Bun's allocator is fast enough that fresh allocations per-encode are slightly faster. The buffer pool adds management overhead that outweighs allocation savings.
+Pre-allocating buffer pools still does not improve performance materially. In this run, fresh `TextEncoder.encode()` remained slightly faster than the pool approach.
+
+### `@mvd/postgres` bounded-memory validation (HTTP peak RSS)
+
+Buffered control vs `mvd-stream`, using real HTTP streaming with RSS polling.
+
+| Scenario | Rows | Concurrency | Slow Read | Errors | Peak RSS Delta | End RSS Delta |
+|---|---|---|---|---|---|---|
+| buffered control | 100,000 | 10 | 0 ms | 0 | **+1,320.64 MB** | **+1,312.94 MB** |
+| mvd-stream | 100,000 | 1 | 0 ms | 0 | +93.11 MB | +77.54 MB |
+| mvd-stream | 100,000 | 10 | 0 ms | 0 | +92.12 MB | +72.09 MB |
+| mvd-stream | 100,000 | 50 | 0 ms | 0 | +92.70 MB | +67.82 MB |
+| mvd-stream | 100,000 | 100 | 0 ms | 144 | +92.02 MB | +69.64 MB |
+
+Even under HTTP load, `mvd-stream` remains bounded: across the clean concurrency runs (1/10/50), peak RSS stayed in a very narrow **~92–93 MB** band, while end-of-run RSS settled back to **~68–78 MB**. The buffered control, by contrast, stayed pinned above **1.3 GB**.
+
+Slow-consumer sweep (`mvd-stream`, 10,000 rows, concurrency 10):
+
+| Slow Read Delay | Errors | Peak RSS Delta | End RSS Delta | p95 |
+|---|---|---|---|---|
+| 0 ms | 0 | +89.79 MB | +79.60 MB | 3,975.5 ms |
+| 5 ms | 0 | +92.77 MB | +65.83 MB | 3,842.3 ms |
+| 10 ms | 0 | +87.28 MB | +70.57 MB | 3,760.9 ms |
+| 50 ms | 0 | +89.63 MB | +71.09 MB | 3,697.3 ms |
+
+This is the strongest boundedness evidence in the suite so far: slowing the consumer down did **not** cause memory to climb with time or payload. Peak RSS stayed essentially flat at **~87–93 MB**, which is exactly what you want from a backpressure-driven streaming path.
+
+30-second soak (`mvd-stream`, 100,000 rows, concurrency 10):
+
+| Duration | Errors | Peak RSS Delta | End RSS Delta | p95 |
+|---|---|---|---|---|
+| 30 s | 0 | +91.83 MB | +76.17 MB | 30,292.4 ms |
+
+The soak run strengthens the boundedness claim: after **30 seconds** of continuous streaming load, `mvd-stream` still peaked at only **+91.83 MB** and ended at **+76.17 MB**. That looks like a stable plateau, not an upward memory drift.
+
+Error source note: the `concurrency=100` failures are **not specific to `@mvd/postgres`**. A focused repro showed the same client-side error (`The socket connection was closed unexpectedly`) for `mvd-stream`, `stream-cursor`, and `stream-foreach`, with no server stderr output. That points to HTTP/socket saturation in the Bun server/load harness at extreme concurrency, rather than a unique `@mvd/postgres` streaming bug.
 
 ---
 
@@ -236,33 +291,33 @@ End-to-end HTTP benchmark with 10 concurrent clients, 6-second runs per strategy
 
 ### Throughput (RPS)
 
-| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
-|---|---|---|---|---|---|
-| 1,000 | **179** | 36 | 69 | 29 | 29 |
-| 10,000 | **17** | 3.8 | 4.5 | 3.3 | 3.3 |
-| 100,000 | **2.7** | 1.7 | 1.7 | 1.7 | 1.7 |
+| Size | buffered | stream-cursor | stream-foreach | mvd-stream | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|---|
+| 1,000 | **178.3** | 37.7 | 94.3 | 105.8 | 31.0 | 27.7 |
+| 10,000 | **20.8** | 5.0 | 5.2 | 4.5 | 3.8 | 3.3 |
+| 100,000 | **3.3** | 1.7 | 1.7 | 1.7 | 1.7 | 1.7 |
 
-Buffered dominates throughput at all sizes. At 1K rows, buffered is **5x faster** than cursor-based streaming. The gap narrows at 100K rows as DB fetch time dominates.
+Buffered still leads overall throughput. At 1K rows, `mvd-stream` outperforms both existing streaming paths (`stream-cursor`, `stream-foreach`) while retaining bounded memory.
 
 ### p95 Latency
 
-| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
-|---|---|---|---|---|---|
-| 1,000 | **83.7 ms** | 349.4 ms | 358.0 ms | 461.9 ms | 481.0 ms |
-| 10,000 | **763.6 ms** | 3,483.1 ms | 4,183.7 ms | 3,918.0 ms | 4,446.8 ms |
-| 100,000 | **6,705 ms** | 32,184 ms | 30,010 ms | 36,732 ms | 40,041 ms |
+| Size | buffered | stream-cursor | stream-foreach | mvd-stream | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|---|
+| 1,000 | **86.9 ms** | 313.6 ms | 262.7 ms | 180.7 ms | 384.8 ms | 498.9 ms |
+| 10,000 | **593.5 ms** | 3,003.5 ms | 3,397.2 ms | 3,897.3 ms | 3,391.8 ms | 3,533.4 ms |
+| 100,000 | **5,484.8 ms** | 29,544.8 ms | 28,066.3 ms | 30,995.0 ms | 33,665.1 ms | 36,009.1 ms |
 
-Streaming strategies suffer 4-6x higher tail latency due to per-row enqueue overhead and event loop contention under concurrent load.
+At 1K rows, `mvd-stream` has the best p95 among streaming options. At larger payloads, all streaming paths cluster in the multi-second range while keeping memory bounded.
 
 ### Peak Memory (RSS delta)
 
-| Size | buffered | stream-cursor | stream-foreach | yield-cursor | pg-query-stream |
-|---|---|---|---|---|---|
-| 1,000 | 105.42 MB | **84.66 MB** | 100.44 MB | 98.36 MB | 91.07 MB |
-| 10,000 | 269.25 MB | **94.41 MB** | 95.34 MB | 95.05 MB | **89.06 MB** |
-| 100,000 | **1,405.64 MB** | 83.48 MB | 85.11 MB | 93.09 MB | **83.05 MB** |
+| Size | buffered | stream-cursor | stream-foreach | mvd-stream | yield-cursor | pg-query-stream |
+|---|---|---|---|---|---|---|
+| 1,000 | 112.85 MB | **86.19 MB** | 97.44 MB | 96.18 MB | 89.77 MB | 87.52 MB |
+| 10,000 | **261.73 MB** | 85.00 MB | 90.18 MB | 87.09 MB | 90.29 MB | 86.29 MB |
+| 100,000 | **1,271.96 MB** | 85.65 MB | 80.37 MB | 91.17 MB | 90.79 MB | **75.76 MB** |
 
-At 100K rows, buffered uses **1.4 GB** while all streaming strategies stay under **100 MB**. This is the primary advantage of streaming: predictable, bounded memory regardless of result set size.
+At 100K rows, buffered reaches **~1.27 GB** while every streaming strategy — including `mvd-stream` — stays below **100 MB**. The memory advantage of streaming remains decisive.
 
 ---
 
@@ -274,25 +329,42 @@ Elysia vs raw Bun.serve at concurrency 10.
 
 | Framework | Endpoint | RPS | p95 |
 |---|---|---|---|
-| Elysia | buffered | **182** | 84.4 ms |
-| Bun.serve raw | buffered | 160 | 92.0 ms |
-| Bun.serve raw | stream-foreach | 63 | 375.0 ms |
-| Elysia | stream-foreach | 62 | 354.6 ms |
-| Bun.serve raw | stream-cursor | 37 | 339.4 ms |
-| Elysia | stream-cursor | 33 | 345.6 ms |
+| Elysia | buffered | **212.0** | 69.7 ms |
+| Bun.serve raw | buffered | 211.2 | 71.3 ms |
+| Elysia | mvd-stream | **86.3** | 318.0 ms |
+| Bun.serve raw | mvd-stream | 78.3 | **264.9 ms** |
+| Elysia | stream-foreach | 77.0 | 313.0 ms |
+| Bun.serve raw | stream-foreach | 76.8 | 311.0 ms |
+| Elysia | stream-cursor | 38.2 | 308.9 ms |
+| Bun.serve raw | stream-cursor | 37.7 | 302.8 ms |
 
 ### 10,000 rows
 
 | Framework | Endpoint | RPS | p95 |
 |---|---|---|---|
-| Bun.serve raw | buffered | **19** | 694.3 ms |
-| Elysia | buffered | 18 | 714.4 ms |
-| Bun.serve raw | stream-foreach | 4.8 | 3,313 ms |
-| Elysia | stream-foreach | 4.5 | 3,986 ms |
-| Elysia | stream-cursor | 3.3 | 3,407 ms |
-| Bun.serve raw | stream-cursor | 3.3 | 3,138 ms |
+| Bun.serve raw | buffered | **23.3** | **522.0 ms** |
+| Elysia | buffered | 22.5 | 546.8 ms |
+| Bun.serve raw | stream-foreach | **4.8** | 3,323.1 ms |
+| Elysia | stream-foreach | 4.5 | 3,383.5 ms |
+| Elysia | mvd-stream | **4.5** | 3,905.7 ms |
+| Bun.serve raw | mvd-stream | 4.2 | **3,407.3 ms** |
+| Elysia | stream-cursor | 5.0 | 2,954.3 ms |
+| Bun.serve raw | stream-cursor | 5.0 | **2,917.5 ms** |
 
-Elysia adds **no meaningful overhead** — results are within noise of raw Bun.serve. For buffered endpoints, Elysia is actually slightly faster at 1K rows (182 vs 160 RPS), likely due to response handling optimizations.
+### 100,000 rows
+
+| Framework | Endpoint | RPS | p95 |
+|---|---|---|---|
+| Bun.serve raw | buffered | **3.2** | **6,104.5 ms** |
+| Elysia | buffered | 2.7 | 6,529.0 ms |
+| Elysia | stream-cursor | 1.7 | 6,211.0 ms |
+| Bun.serve raw | stream-cursor | 1.7 | **6,182.6 ms** |
+| Elysia | stream-foreach | 1.7 | 6,402.7 ms |
+| Bun.serve raw | stream-foreach | 1.7 | **6,396.0 ms** |
+| Elysia | mvd-stream | 1.7 | **6,452.1 ms** |
+| Bun.serve raw | mvd-stream | 1.7 | 6,475.0 ms |
+
+Framework overhead remains small relative to query/streaming cost. At 1K rows, Elysia and raw Bun are effectively tied on buffered throughput, and `mvd-stream` performs competitively on both servers.
 
 ---
 
@@ -578,15 +650,15 @@ The advantage grows with concurrency and shrinks with row count. At small payloa
 
 ## Key Takeaways
 
-- **DB driver choice matters less than access pattern.** `pg` and `porsager` buffered reads differ by <10%. The real performance cliff is cursor vs buffered (25-40% penalty) and pg-query-stream (2-4x slower).
+- **DB driver choice still trails access pattern.** Buffered and streaming-iteration paths (`pg`, `porsager .forEach()`, `mvd .stream()`) cluster tightly, while cursor-driven and `pg-query-stream` paths remain significantly slower.
 
 - **TEXT columns are 2.3x faster than JSONB** for read-heavy workloads. If you don't need server-side JSON operations, store as TEXT and parse client-side.
 
 - **Unnest batching is the fastest write strategy** — faster than COPY FROM STDIN for matching batch sizes. Use batch size >= total row count when possible. Row-by-row INSERT is 65-94x slower.
 
-- **Streaming saves 7-17x memory at scale.** At 100K rows, Bun buffered uses 1.4 GB while streaming stays under 100 MB. Go shows zero measurable heap growth for any strategy.
+- **Streaming saves an order of magnitude of memory at scale.** At 100K rows, Bun buffered reached **~1.27 GB** while all streaming paths (including `mvd-stream`) stayed under **100 MB**.
 
-- **Buffered is faster for throughput when data fits in memory.** At 1K rows, buffered achieves 179 RPS vs 36 RPS for cursor streaming (5x). Use buffered for small-to-medium result sets.
+- **Buffered is still throughput king when memory allows.** At 1K rows, buffered is **178.3 RPS** while cursor streaming is **37.7 RPS**; `mvd-stream` improves streaming throughput to **105.8 RPS**.
 
 - **Per-row `controller.enqueue()` is the streaming bottleneck.** It causes event loop contention that worsens under concurrency: 72 RPS at c=1 drops to 40 RPS at c=10. Batch enqueue achieves 185 RPS at c=10 — a **4.6x improvement**.
 
@@ -594,12 +666,12 @@ The advantage grows with concurrency and shrinks with row count. At small payloa
 
 - **TCP backpressure eliminates cursor overhead.** Go's simple query + TCP flow control achieves 540 RPS at 1K rows — matching buffered throughput with zero memory overhead. No DECLARE/FETCH round-trips needed.
 
-- **Go's memory profile is flat under load.** Zero measurable heap delta across all strategies and row sizes, compared to Bun's +1.4 GB for buffered 100K rows. Go's per-goroutine GC reclaims allocations immediately.
+- **Go's memory profile is flat under load.** Zero measurable heap delta across all strategies and row sizes, compared to Bun's **+1.27 GB** for buffered 100K rows. Go's per-goroutine GC reclaims allocations immediately.
 
 - **Gzip doubles small-payload throughput** but costs 12x more memory at 100K rows (1 GB vs 84 MB). Use compression selectively based on payload size.
 
 - **HTTP NDJSON is 6x faster than WebSocket** for streaming. WebSocket per-message framing overhead is significant; prefer NDJSON for server-to-client data streaming.
 
-- **Elysia adds zero measurable overhead** compared to raw Bun.serve. Framework choice is irrelevant for performance.
+- **Elysia adds low overhead** compared to raw Bun.serve; differences were small across endpoints, including `mvd-stream`.
 
 - **Cursor stream pagination is 2.8x faster than OFFSET/LIMIT** at 100K rows. For large dataset traversal, always prefer cursors over page-based pagination.

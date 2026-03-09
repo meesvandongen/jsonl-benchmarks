@@ -8,6 +8,7 @@
  *   buffered         — porsager SELECT all + JSON array
  *   stream-cursor    — porsager .cursor(500) + ReadableStream
  *   stream-foreach   — porsager .forEach() + ReadableStream
+ *   mvd-stream         — @mvd/postgres .stream() + ReadableStream
  *   yield-cursor     — porsager .cursor(500) + Elysia yield
  *   pg-query-stream  — pg-query-stream + ReadableStream
  */
@@ -24,6 +25,7 @@ export const STRATEGIES = [
   "buffered",
   "stream-cursor",
   "stream-foreach",
+  "mvd-stream",
   "yield-cursor",
   "pg-query-stream",
 ] as const;
@@ -33,6 +35,7 @@ export const STRATEGY_LABELS: Record<Strategy, string> = {
   "buffered": "Buffered",
   "stream-cursor": "porsager cursor+RS",
   "stream-foreach": "porsager forEach+RS",
+  "mvd-stream": "@mvd/postgres stream+RS",
   "yield-cursor": "Elysia yield+cursor",
   "pg-query-stream": "pg-query-stream+RS",
 };

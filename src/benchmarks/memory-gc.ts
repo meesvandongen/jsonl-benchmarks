@@ -3,16 +3,44 @@
  *
  * Compares:
  *   1. Buffered vs streaming heap usage (manual measurement)
+ *   2. @mvd/postgres .stream() heap usage under streaming backpressure
  *   2. ArrayBuffer reuse vs fresh allocation per row
  *   3. GC reclaimable memory after buffered vs streaming
  */
 
 import { bench, group, run } from "mitata";
-import { sql, pool, waitForDb } from "../db/client";
+import { sql, mvdSql, pool, waitForDb } from "../db/client";
 import { setupTables, seedIfNeeded } from "../db/setup";
 
 const SIZES = [10_000, 100_000];
 const enc = new TextEncoder();
+
+async function measurePeakHeap<T>(fn: () => Promise<T>): Promise<{ peakDeltaMB: number; retainedMB: number; result: T }> {
+  Bun.gc(true);
+  const heapBefore = process.memoryUsage().heapUsed;
+  let maxHeap = heapBefore;
+
+  const poller = setInterval(() => {
+    const current = process.memoryUsage().heapUsed;
+    if (current > maxHeap) maxHeap = current;
+  }, 5);
+
+  try {
+    const result = await fn();
+    const current = process.memoryUsage().heapUsed;
+    if (current > maxHeap) maxHeap = current;
+    Bun.gc(true);
+    const heapPostGc = process.memoryUsage().heapUsed;
+
+    return {
+      peakDeltaMB: toMB(Math.max(0, maxHeap - heapBefore)),
+      retainedMB: toMB(Math.max(0, heapPostGc - heapBefore)),
+      result,
+    };
+  } finally {
+    clearInterval(poller);
+  }
+}
 
 // ─── GC Pressure measurement (manual, outside mitata) ─────────────────
 
@@ -24,37 +52,37 @@ async function measureGcPressure() {
     console.log(`\n  ${size.toLocaleString()} rows:`);
 
     // Buffered: load all into memory
-    Bun.gc(true);
-    const heapBefore = process.memoryUsage().heapUsed;
-    const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${size}`;
-    const serialized = rows.map((r: { data: unknown }) => JSON.stringify(r.data));
-    const heapAfter = process.memoryUsage().heapUsed;
-    const heapDelta = heapAfter - heapBefore;
-    // Force GC and measure reclaimable
-    const _keep = serialized.length; // prevent optimization
-    Bun.gc(true);
-    const heapPostGc = process.memoryUsage().heapUsed;
-    const retained = heapPostGc - heapBefore;
-    console.log(`    buffered:  heap +${toMB(heapDelta)}MB during, ${toMB(retained)}MB retained after GC`);
+    const buffered = await measurePeakHeap(async () => {
+      const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${size}`;
+      const serialized = rows.map((r) => JSON.stringify((r as { data: unknown }).data));
+      return serialized.length;
+    });
+    console.log(`    buffered:         heap +${buffered.peakDeltaMB}MB peak, ${buffered.retainedMB}MB retained after GC`);
 
-    // Streaming: process row by row
-    Bun.gc(true);
-    const heapBefore2 = process.memoryUsage().heapUsed;
-    let maxHeap = heapBefore2;
-    let count = 0;
-    const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${size}`.cursor(500);
-    for await (const batch of cursor) {
-      for (const row of batch) {
+    // Streaming via cursor: process row by row
+    const cursorStream = await measurePeakHeap(async () => {
+      let count = 0;
+      const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${size}`.cursor(500);
+      for await (const batch of cursor) {
+        for (const row of batch) {
+          JSON.stringify(row.data);
+          count++;
+        }
+      }
+      return count;
+    });
+    console.log(`    porsager cursor:  heap +${cursorStream.peakDeltaMB}MB peak, ${cursorStream.retainedMB}MB retained after GC (${cursorStream.result} rows)`);
+
+    // Streaming via @mvd/postgres .stream()
+    const mvdStream = await measurePeakHeap(async () => {
+      let count = 0;
+      for await (const row of mvdSql`SELECT data FROM records ORDER BY id LIMIT ${size}`.stream()) {
         JSON.stringify(row.data);
         count++;
       }
-      const current = process.memoryUsage().heapUsed;
-      if (current > maxHeap) maxHeap = current;
-    }
-    Bun.gc(true);
-    const heapPostGc2 = process.memoryUsage().heapUsed;
-    const retained2 = heapPostGc2 - heapBefore2;
-    console.log(`    streaming: heap +${toMB(maxHeap - heapBefore2)}MB peak, ${toMB(retained2)}MB retained after GC (${count} rows)`);
+      return count;
+    });
+    console.log(`    mvd .stream():    heap +${mvdStream.peakDeltaMB}MB peak, ${mvdStream.retainedMB}MB retained after GC (${mvdStream.result} rows)`);
   }
 }
 
@@ -131,6 +159,7 @@ if (import.meta.main) {
   console.log("\nRunning allocation benchmarks...\n");
   await run();
 
+  await mvdSql.end();
   await sql.end();
   await pool.end();
 }

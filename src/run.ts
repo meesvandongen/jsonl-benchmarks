@@ -18,7 +18,8 @@
  * 14. Concurrency & backpressure → reports/concurrency.json
  * 15. Streaming bottleneck analysis → reports/bottleneck.json
  * 16. Go backpressure benchmark → reports/go-backpressure.json
- * 17. Save environment metadata → reports/meta.json
+ * 17. @mvd/postgres bounded-memory benchmark → reports/mvd-memory-boundedness.json
+ * 18. Save environment metadata → reports/meta.json
  */
 
 import { sql, pool, waitForDb } from "./db/client";
@@ -30,10 +31,11 @@ import { runWebSocketBenchmark } from "./benchmarks/http-websocket";
 import { runConcurrencyBenchmark } from "./benchmarks/concurrency";
 import { runBottleneckAnalysis } from "./benchmarks/bottleneck-analysis";
 import { runGoBackpressureBenchmark } from "./benchmarks/go-backpressure";
+import { runMvdMemoryBoundednessBenchmark } from "./benchmarks/mvd-memory-boundedness";
 
 const REPORTS_DIR = "reports";
 const SEED_COUNT = 100_000;
-const TOTAL_STEPS = 17;
+const TOTAL_STEPS = 18;
 
 function step(n: number, msg: string) {
   console.log(`\n${"─".repeat(72)}`);
@@ -120,7 +122,7 @@ for (const mb of mitataBenchmarks) {
 
 // ─── Step 9: HTTP E2E memory benchmark ───────────────────────────────────────
 
-step(10, "HTTP E2E memory benchmark (5 core strategies)");
+step(10, "HTTP E2E memory benchmark (6 core strategies)");
 const httpResults = await runHttpBenchmark();
 await saveReport("http-e2e", httpResults);
 
@@ -160,9 +162,15 @@ step(16, "Go pgx TCP backpressure benchmark");
 const goResults = await runGoBackpressureBenchmark();
 await saveReport("go-backpressure", goResults);
 
-// ─── Step 16: Environment metadata ───────────────────────────────────────────
+// ─── Step 16: @mvd bounded-memory benchmark ──────────────────────────────────
 
-step(17, "Saving environment metadata");
+step(17, "@mvd/postgres bounded-memory benchmark");
+const mvdMemoryResults = await runMvdMemoryBoundednessBenchmark();
+await saveReport("mvd-memory-boundedness", mvdMemoryResults);
+
+// ─── Step 17: Environment metadata ───────────────────────────────────────────
+
+step(18, "Saving environment metadata");
 await saveReport("meta", {
   generatedAt: new Date().toISOString(),
   platform: `${process.platform} ${process.arch}`,

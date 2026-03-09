@@ -13,6 +13,7 @@
     "bench:write": "bun src/benchmarks/write-path.ts",
     "bench:real-world": "bun src/benchmarks/real-world.ts",
     "bench:memory": "bun src/benchmarks/memory-gc.ts",
+    "bench:mvd-memory": "bun src/benchmarks/mvd-memory-boundedness.ts",
     "bench:http": "bun src/benchmarks/http-e2e.ts",
     "bench:framework": "bun src/benchmarks/http-bun-raw.ts",
     "bench:compression": "bun src/benchmarks/http-compression.ts",
@@ -23,6 +24,7 @@
     "bench:json-packages": "bun src/benchmarks/json-packages.ts"
   },
   "dependencies": {
+    "@mvd/postgres": "^3.4.8",
     "@msgpack/msgpack": "^3.1.3",
     "destr": "^2.0.5",
     "elysia": "^1.2.25",

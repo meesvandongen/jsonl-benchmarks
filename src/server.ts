@@ -4,6 +4,7 @@
  *   GET /buffered?limit=N         — porsager SELECT all, JSON array
  *   GET /stream-cursor?limit=N    — porsager .cursor(500) + ReadableStream NDJSON
  *   GET /stream-foreach?limit=N   — porsager .forEach(fn) + ReadableStream NDJSON
+ *   GET /mvd-stream?limit=N        — @mvd/postgres .stream() + ReadableStream NDJSON
  *   GET /yield-cursor?limit=N     — porsager .cursor(500) + Elysia yield
  *   GET /pg-query-stream?limit=N  — pg-query-stream cursor + ReadableStream NDJSON
  *   GET /health                   — healthcheck
@@ -11,7 +12,7 @@
  */
 
 import { Elysia } from "elysia";
-import { sql, pool } from "./db/client";
+import { sql, mvdSql, pool } from "./db/client";
 import QueryStream from "pg-query-stream";
 
 const PORT = parseInt(process.env.PORT ?? "3000");
@@ -74,6 +75,26 @@ const app = new Elysia()
             .forEach((row: { data: unknown }) => {
               controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
             });
+          controller.close();
+        } catch (e) {
+          controller.error(e);
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: { "Content-Type": "application/x-ndjson" },
+    });
+  })
+
+  // Strategy 3b: @mvd/postgres stream + ReadableStream
+  .get("/mvd-stream", ({ query }) => {
+    const limit = parseInt((query as Record<string, string>).limit ?? "1000");
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const row of mvdSql`SELECT data FROM records ORDER BY id LIMIT ${limit}`.stream()) {
+            controller.enqueue(enc.encode(JSON.stringify(row.data) + "\n"));
+          }
           controller.close();
         } catch (e) {
           controller.error(e);

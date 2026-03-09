@@ -12,7 +12,7 @@ These contain the raw mitata benchmark output — timing tables with avg/min/max
 
 | File | Contents |
 |---|---|
-| `reports/db-drivers.txt` | Core DB read strategies: porsager buffered, `.cursor(500)`, `.forEach()`, pg buffered, pg-query-stream. Sizes: 100, 1K, 10K, 100K rows. |
+| `reports/db-drivers.txt` | Core DB read strategies: porsager buffered/`.cursor(500)`/`.forEach()`, `@mvd/postgres` buffered/`.cursor(500)`/`.forEach()`, pg buffered, pg-query-stream. Sizes: 100, 1K, 10K, 100K rows. |
 | `reports/db-driver-variants.txt` | Extended variants: pg-cursor raw, porsager prepared, pg prepared. Sizes: 1K, 10K, 100K rows. |
 | `reports/serialization.txt` | Serialization formats: JSON.stringify, NDJSON line-by-line, streaming JSON build, MessagePack, JSONB vs TEXT column. Sizes: 1K, 10K, 100K rows. |
 | `reports/json-packages.txt` | JSON npm package comparison: stringify (JSON.stringify, fast-json-stringify, manual template, json-stringify-safe), parse (JSON.parse, destr, secure-json-parse), binary encode (msgpackr, @msgpack/msgpack), NDJSON construction methods. Sizes: 1K, 10K, 100K rows. Pre-loaded rows (no DB in hot path). |
@@ -32,6 +32,7 @@ These contain the raw mitata benchmark output — timing tables with avg/min/max
 | `reports/concurrency.json` | Concurrency scaling and backpressure | `[{ test, concurrency, totalRequests, errors, rps, p95, peakRssDeltaMB, baselineRss, peakRss }]` |
 | `reports/bottleneck.json` | Streaming bottleneck analysis — 4 suites | `[{ section, name, concurrency, rps, p95, avgMs }]` sections: `http-layer`, `enqueue-sweep`, `cursor-batch-size`, `cursor-perrow`, `concurrency-scaling` |
 | `reports/go-backpressure.json` | Go pgx TCP backpressure vs Bun — 3 suites, multiple sizes | `[{ section, name, size, concurrency, rps, p95, avgMs, peakRssDeltaMB? }]` sections: `go-strategies`, `go-vs-bun`, `go-concurrency-scaling`. Sizes: 1K, 10K, 100K rows. |
+| `reports/mvd-memory-boundedness.json` | `@mvd/postgres` bounded-memory validation under concurrency, slow-consumer backpressure, and soak testing | `[{ scenario, strategy, payloadSize, concurrency, slowReadMs, durationSec, totalRequests, errors, rps, p95, baselineRss, peakRss, peakRssDeltaMB, endRss, endRssDeltaMB }]` |
 
 ## How to generate RESULTS.md
 
@@ -50,7 +51,7 @@ You are writing a technical benchmark report in Markdown. Read ALL the report fi
 - Metadata from `meta.json`: generated date, platform, runtime, PG version, row count
 
 ### 2. Strategies Overview
-A brief table describing the 5 core HTTP strategies (buffered, porsager cursor, porsager forEach, Elysia yield, pg-query-stream) — what DB driver, access method, and response format each uses.
+A brief table describing the 6 core HTTP strategies (buffered, porsager cursor, porsager forEach, @mvd/postgres stream, Elysia yield, pg-query-stream) — what DB driver, access method, and response format each uses.
 
 ### 3. DB Driver Performance (from `db-drivers.txt`)
 Parse the mitata output. For each row count group (100, 1K, 10K, 100K), create a table with columns: Driver, avg, p75, p99. Highlight the fastest driver per group. Add 1-2 sentences of analysis.

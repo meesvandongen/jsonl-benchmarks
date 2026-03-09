@@ -4,11 +4,12 @@
  * Compares:
  *   1. pg-cursor (raw) — direct cursor without stream abstraction
  *   2. porsager prepared — auto-prepared buffered SELECT
- *   3. pg prepared (named) — pg named/prepared query
+ *   3. @mvd/postgres prepared — auto-prepared buffered SELECT
+ *   4. pg prepared (named) — pg named/prepared query
  */
 
 import { bench, group, run } from "mitata";
-import { sql, pool, waitForDb } from "../db/client";
+import { sql, mvdSql, pool, waitForDb } from "../db/client";
 import { setupTables, seedIfNeeded } from "../db/setup";
 import Cursor from "pg-cursor";
 
@@ -43,6 +44,11 @@ for (const size of SIZES) {
       if (rows.length !== size) throw new Error("unexpected row count");
     });
 
+    bench("mvd prepared", async () => {
+      const rows = await mvdSql`SELECT data FROM records ORDER BY id LIMIT ${size}`;
+      if (rows.length !== size) throw new Error("unexpected row count");
+    });
+
     // pg prepared (named) — pg named/prepared query
     bench("pg prepared (named)", async () => {
       const res = await pool.query({
@@ -66,6 +72,7 @@ if (import.meta.main) {
 
   await run();
 
+  await mvdSql.end();
   await sql.end();
   await pool.end();
 }
