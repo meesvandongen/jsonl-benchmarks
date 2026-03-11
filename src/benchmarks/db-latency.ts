@@ -2,11 +2,11 @@
  * Database latency benchmark (opt-in).
  *
  * Simulates PostgreSQL network RTT using Toxiproxy so we can compare how
- * cursor-driven streaming, buffered fetching, and @mvd/postgres .stream()
- * behave as database latency increases.
+ * buffered fetching, postgres cursor streaming, postgres .forEach(), and
+ * pg-query-stream behave as database latency increases.
  *
- * This benchmark is intentionally NOT wired into src/run.ts because it is
- * slower and requires the optional toxiproxy service.
+ * This benchmark is intentionally separate from the default benchmark flow
+ * because it is slower and requires the optional toxiproxy service.
  *
  * Requirements:
  *   docker compose up -d postgres toxiproxy
@@ -39,9 +39,8 @@ const RTT_LEVELS_MS = [0, 10, 50, 100] as const;
 
 const STRATEGIES = [
   { key: "buffered", label: "Buffered", isStream: false },
-  { key: "stream-cursor", label: "porsager cursor+RS", isStream: true },
-  { key: "stream-foreach", label: "porsager forEach+RS", isStream: true },
-  { key: "mvd-stream", label: "@mvd/postgres stream+RS", isStream: true },
+  { key: "stream-cursor", label: "postgres cursor+RS", isStream: true },
+  { key: "stream-foreach", label: "postgres forEach+RS", isStream: true },
   { key: "pg-query-stream", label: "pg-query-stream+RS", isStream: true },
 ] as const;
 

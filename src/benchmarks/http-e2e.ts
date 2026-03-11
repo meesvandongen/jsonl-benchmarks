@@ -5,15 +5,13 @@
  * load while polling /memory, and records peak RSS delta from baseline.
  *
  * Strategies:
- *   buffered         — porsager SELECT all + JSON array
- *   stream-cursor    — porsager .cursor(500) + ReadableStream
- *   stream-foreach   — porsager .forEach() + ReadableStream
- *   mvd-stream         — @mvd/postgres .stream() + ReadableStream
- *   yield-cursor     — porsager .cursor(500) + Elysia yield
+ *   buffered         — postgres SELECT all + JSON array
+ *   stream-cursor    — postgres .cursor(500) + ReadableStream
+ *   stream-foreach   — postgres .forEach() + ReadableStream
  *   pg-query-stream  — pg-query-stream + ReadableStream
  */
 
-const PORT = process.env.PORT ?? "3000";
+const PORT = process.env.PORT ?? "3100";
 const BASE = `http://localhost:${PORT}`;
 const WARMUP_SEC = 1;
 const BENCH_DURATION_SEC = 6;
@@ -25,18 +23,14 @@ export const STRATEGIES = [
   "buffered",
   "stream-cursor",
   "stream-foreach",
-  "mvd-stream",
-  "yield-cursor",
   "pg-query-stream",
 ] as const;
 export type Strategy = (typeof STRATEGIES)[number];
 
 export const STRATEGY_LABELS: Record<Strategy, string> = {
   "buffered": "Buffered",
-  "stream-cursor": "porsager cursor+RS",
-  "stream-foreach": "porsager forEach+RS",
-  "mvd-stream": "@mvd/postgres stream+RS",
-  "yield-cursor": "Elysia yield+cursor",
+  "stream-cursor": "postgres cursor+RS",
+  "stream-foreach": "postgres forEach+RS",
   "pg-query-stream": "pg-query-stream+RS",
 };
 

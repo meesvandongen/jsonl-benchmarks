@@ -1,5 +1,4 @@
 import postgres from "postgres";
-import mvdPostgres from "@mvd/postgres";
 import pg from "pg";
 
 const DB_HOST = process.env.DB_HOST ?? "localhost";
@@ -10,19 +9,6 @@ const DB_PASS = process.env.DB_PASS ?? "postgres";
 
 // porsager/postgres driver
 export const sql = postgres({
-  host: DB_HOST,
-  port: DB_PORT,
-  database: DB_NAME,
-  username: DB_USER,
-  password: DB_PASS,
-  max: parseInt(process.env.DB_POOL_MAX ?? "20"),
-  idle_timeout: 30,
-  connect_timeout: 10,
-  onnotice: () => {},
-});
-
-// @mvd/postgres driver
-export const mvdSql = mvdPostgres({
   host: DB_HOST,
   port: DB_PORT,
   database: DB_NAME,
