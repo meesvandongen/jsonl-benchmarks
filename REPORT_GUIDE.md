@@ -18,7 +18,7 @@ These contain the raw mitata benchmark output — timing tables with avg/min/max
 | `reports/json-packages.txt` | JSON npm package comparison: stringify (JSON.stringify, fast-json-stringify, manual template, json-stringify-safe), parse (JSON.parse, destr, secure-json-parse), binary encode (msgpackr, @msgpack/msgpack), NDJSON construction methods. Sizes: 1K, 10K, 100K rows. Pre-loaded rows (no DB in hot path). |
 | `reports/write-path.txt` | INSERT strategies: row-by-row, unnest batches (100/500/1K/5K), COPY FROM STDIN. Sizes: 1K, 5K, 10K rows. |
 | `reports/real-world.txt` | Real-world patterns: filtered queries (buffered vs cursor), pagination vs cursor, transforms (redact), JOINs. |
-| `reports/memory-gc.txt` | Memory & GC pressure: heap delta/retained for buffered vs streaming, ArrayBuffer allocation strategies. |
+| `reports/memory-gc.txt` | Memory & GC pressure: heap delta/retained for buffered vs streaming (`cursor`, `.forEach()`, `@mvd/postgres .stream()`), plus ArrayBuffer allocation strategies. |
 
 ### JSON reports (structured data)
 
@@ -26,6 +26,7 @@ These contain the raw mitata benchmark output — timing tables with avg/min/max
 |---|---|---|
 | `reports/meta.json` | Environment: platform, runtime, PG version, seed count, timestamp | `{ generatedAt, platform, runtime, pgVersion, seedCount }` |
 | `reports/http-e2e.json` | Core HTTP E2E — 5 strategies x multiple row counts. RPS, p95, peak RSS, memory delta | `{ ranAt, payloadSizes: number[], strategies: string[], concurrency, results: [{ strategy, payloadSize, rps, p95, peakRss, peakRssDeltaMB, throughputBytes, ... }] }` |
+| `reports/db-latency.json` | Optional DB-latency benchmark via Toxiproxy — compares strategies as simulated PostgreSQL RTT increases using completed request samples | `{ ranAt, toxiproxyUrl, proxyName, proxyListen, upstream, rttLevelsMs: number[], payloadSizes: number[], concurrency, strategies: string[], results: [{ rttMs, payloadSize, strategy, samples, totalRequests, errors, avgMs, rps, p95, throughputBytes, baselineRss, peakRss, peakRssDeltaMB }] }` |
 | `reports/framework.json` | Elysia vs Bun.serve raw overhead | `[{ framework, endpoint, size, rps, p95, peakRssDeltaMB }]` |
 | `reports/compression.json` | Gzip vs uncompressed streaming | `[{ endpoint, size, rps, p95, peakRssDeltaMB, throughputBytesPerSec }]` |
 | `reports/websocket.json` | WebSocket vs HTTP NDJSON transport | `[{ transport, size, totalRequests, rps, p95, peakRssDeltaMB }]` |
@@ -85,6 +86,9 @@ Three tables:
 - **Peak Memory (RSS delta)** — same layout
 
 Write 2-3 sentences of analysis after each table.
+
+### 10b. Optional DB Latency Results (from `db-latency.json`, if present)
+Summarize how completed-request latency changes as simulated PostgreSQL RTT increases. Use one table per payload size with columns: RTT, strategy, avg, p95, RPS, peak RSS delta, errors. Focus on which strategies degrade the fastest and why cursor round-trips become more expensive at higher RTT.
 
 ### 11. Framework Overhead (from `framework.json`)
 Table comparing Elysia vs Bun.serve raw RPS/p95. One sentence on overhead percentage.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Generated** | 2026-03-09 |
+| **Generated** | 2026-03-10 |
 | **Platform** | win32 x64 |
 | **Runtime** | Bun 1.3.9 |
 | **PostgreSQL** | 16.13 |
@@ -230,14 +230,18 @@ Buffered reads are ~2x faster than cursor for JOIN queries. The cursor DECLARE/F
 
 | Row Count | Strategy | Peak Heap Delta | Retained After GC |
 |---|---|---|---|
-| 10,000 | buffered | +5.9 MB | +5.9 MB |
-| 10,000 | porsager cursor | +0 MB | +0 MB |
-| 10,000 | **mvd .stream()** | **+0 MB** | **+0 MB** |
-| 100,000 | buffered | **+72.34 MB** | **+72.34 MB** |
-| 100,000 | porsager cursor | +0 MB | +0 MB |
-| 100,000 | **mvd .stream()** | **+3.28 MB** | **+3.28 MB** |
+| 10,000 | buffered | +6.14 MB | +6.14 MB |
+| 10,000 | porsager cursor | +0 B | +0 B |
+| 10,000 | porsager forEach | +0 B | +0 B |
+| 10,000 | **mvd .stream()** | **+0 B** | **+0 B** |
+| 100,000 | buffered | **+70.84 MB** | **+70.84 MB** |
+| 100,000 | porsager cursor | +0 B | +0 B |
+| 100,000 | porsager forEach | +897.48 KB | +897.48 KB |
+| 100,000 | mvd .stream() | +2.73 MB | +2.73 MB |
 
-`@mvd/postgres .stream()` stays low-memory while streaming. At 100K rows, buffered retains **72.34 MB**, while `mvd .stream()` retains only **3.28 MB** after GC — over **22x lower** retained heap in this run.
+After tightening the measurement to sample **inside the streaming loops**, the suspicious `+0 MB` readings became more defensible: they were mostly a **rounding and sampling artifact**, not proof of “no allocations”. In the current generated run, `porsager .forEach()` retained **+897.48 KB** versus `@mvd/postgres .stream()` at **+2.73 MB** for 100K rows. Both remain firmly low-memory relative to buffered, but `mvd .stream()` is **not lower-memory than `.forEach()`** in this heap test.
+
+The small streaming deltas are also visibly **run-sensitive**: once you are down in the KB-to-low-MB range, GC timing and heap reuse matter a lot. So these numbers are best read as “same low-memory class, with `.forEach()` somewhat lower in this run” rather than as an exact fixed ratio.
 
 ### ArrayBuffer Allocation
 
@@ -318,6 +322,68 @@ At 1K rows, `mvd-stream` has the best p95 among streaming options. At larger pay
 | 100,000 | **1,271.96 MB** | 85.65 MB | 80.37 MB | 91.17 MB | 90.79 MB | **75.76 MB** |
 
 At 100K rows, buffered reaches **~1.27 GB** while every streaming strategy — including `mvd-stream` — stays below **100 MB**. The memory advantage of streaming remains decisive.
+
+---
+
+## Simulated DB Latency (Toxiproxy)
+
+This benchmark injects PostgreSQL RTT with Toxiproxy and measures **completed request latency** at concurrency 1. That makes the round-trip cost visible without mixing in event-loop saturation from the broader HTTP load test.
+
+### 1,000 rows
+
+| RTT | Strategy | avg | p95 | RPS | Peak RSS Delta |
+|---|---|---|---|---|---|
+| 0 ms | buffered | 9.6 ms | 11.4 ms | 104.25 | 8.80 MB |
+| 0 ms | stream-cursor | 10.2 ms | 12.1 ms | 97.82 | 10.17 MB |
+| 0 ms | stream-foreach | **8.6 ms** | **9.7 ms** | **115.97** | 10.19 MB |
+| 0 ms | mvd-stream | 9.8 ms | 12.1 ms | 102.10 | 10.92 MB |
+| 0 ms | pg-query-stream | 10.5 ms | 13.6 ms | 95.24 | 12.33 MB |
+| 10 ms | buffered | 19.0 ms | 20.8 ms | 52.68 | 8.79 MB |
+| 10 ms | stream-cursor | 61.2 ms | 63.4 ms | 16.35 | 14.91 MB |
+| 10 ms | stream-foreach | 20.0 ms | 21.7 ms | 49.98 | 15.58 MB |
+| 10 ms | mvd-stream | 21.0 ms | 23.3 ms | 47.58 | 16.45 MB |
+| 10 ms | pg-query-stream | 56.4 ms | 59.1 ms | 17.73 | 15.73 MB |
+| 50 ms | buffered | 64.1 ms | 64.9 ms | 15.60 | 13.64 MB |
+| 50 ms | stream-cursor | 236.0 ms | 237.1 ms | 4.24 | 16.54 MB |
+| 50 ms | stream-foreach | 65.5 ms | 66.0 ms | 15.27 | 16.82 MB |
+| 50 ms | mvd-stream | 66.0 ms | 67.0 ms | 15.16 | 17.34 MB |
+| 50 ms | pg-query-stream | 234.9 ms | 235.4 ms | 4.26 | 17.93 MB |
+| 100 ms | buffered | 119.1 ms | 119.8 ms | 8.40 | 13.88 MB |
+| 100 ms | stream-cursor | 457.9 ms | 459.1 ms | 2.18 | 12.34 MB |
+| 100 ms | stream-foreach | 120.7 ms | 121.6 ms | 8.28 | 16.78 MB |
+| 100 ms | mvd-stream | 120.8 ms | 121.6 ms | 8.28 | 17.09 MB |
+| 100 ms | pg-query-stream | 457.9 ms | 460.8 ms | 2.18 | 13.78 MB |
+
+At 1,000 rows, all strategies are close at **0 ms RTT**, but once RTT is injected the cursor-based paths separate sharply. At **100 ms RTT**, `stream-cursor` and `pg-query-stream` land around **458 ms**, while `mvd-stream` remains at **120.8 ms** — effectively tied with buffered and `stream-foreach`.
+
+### 10,000 rows
+
+| RTT | Strategy | avg | p95 | RPS | Peak RSS Delta |
+|---|---|---|---|---|---|
+| 0 ms | buffered | **50.9 ms** | **51.9 ms** | **19.65** | 60.21 MB |
+| 0 ms | stream-cursor | 77.8 ms | 78.5 ms | 12.85 | 43.87 MB |
+| 0 ms | stream-foreach | 68.7 ms | 82.3 ms | 14.55 | 54.00 MB |
+| 0 ms | mvd-stream | 61.0 ms | 65.2 ms | 16.39 | **42.73 MB** |
+| 0 ms | pg-query-stream | 67.4 ms | 72.8 ms | 14.83 | 50.07 MB |
+| 10 ms | buffered | **63.9 ms** | **68.7 ms** | **15.65** | 59.56 MB |
+| 10 ms | stream-cursor | 356.1 ms | 370.1 ms | 2.81 | **35.49 MB** |
+| 10 ms | stream-foreach | 69.5 ms | 70.8 ms | 14.39 | 45.96 MB |
+| 10 ms | mvd-stream | 75.2 ms | 86.8 ms | 13.29 | 46.84 MB |
+| 10 ms | pg-query-stream | 329.5 ms | 332.3 ms | 3.03 | 40.22 MB |
+| 50 ms | buffered | **107.6 ms** | **111.3 ms** | **9.30** | 65.66 MB |
+| 50 ms | stream-cursor | 1.32 s | 1.32 s | 0.76 | **27.79 MB** |
+| 50 ms | stream-foreach | 112.8 ms | 114.7 ms | 8.87 | 38.32 MB |
+| 50 ms | mvd-stream | 115.7 ms | 118.8 ms | 8.65 | 38.74 MB |
+| 50 ms | pg-query-stream | 1.31 s | 1.31 s | 0.76 | 32.24 MB |
+| 100 ms | buffered | **160.1 ms** | **162.5 ms** | **6.24** | 56.50 MB |
+| 100 ms | stream-cursor | 2.54 s | 2.55 s | 0.39 | **23.87 MB** |
+| 100 ms | stream-foreach | 166.9 ms | 167.8 ms | 5.99 | 45.13 MB |
+| 100 ms | mvd-stream | 175.2 ms | 182.7 ms | 5.71 | 46.00 MB |
+| 100 ms | pg-query-stream | 2.53 s | 2.53 s | 0.40 | 35.52 MB |
+
+This is the clearest validation of the high-latency hypothesis. With **10,000 rows** and batch size **500**, the cursor-driven strategies pay for repeated fetch round-trips: at **100 ms RTT** they jump to roughly **2.53–2.54 s**, while `mvd-stream` stays at **175.2 ms** and `stream-foreach` at **166.9 ms**.
+
+The practical takeaway is narrower than “`@mvd/postgres` beats everything under latency”: it does **not** beat buffered or `stream-foreach` here on raw latency, but it **does** avoid the RTT amplification that crushes cursor-based streaming while still preserving the bounded-memory properties shown elsewhere in this report.
 
 ---
 
@@ -659,6 +725,8 @@ The advantage grows with concurrency and shrinks with row count. At small payloa
 - **Streaming saves an order of magnitude of memory at scale.** At 100K rows, Bun buffered reached **~1.27 GB** while all streaming paths (including `mvd-stream`) stayed under **100 MB**.
 
 - **Buffered is still throughput king when memory allows.** At 1K rows, buffered is **178.3 RPS** while cursor streaming is **37.7 RPS**; `mvd-stream` improves streaming throughput to **105.8 RPS**.
+
+- **High DB RTT is the best case for non-cursor streaming.** In the Toxiproxy run at 10K rows and **100 ms RTT**, cursor-based paths (`stream-cursor`, `pg-query-stream`) ballooned to **~2.53–2.54 s**, while `mvd-stream` stayed at **175 ms** and `stream-foreach` at **167 ms**.
 
 - **Per-row `controller.enqueue()` is the streaming bottleneck.** It causes event loop contention that worsens under concurrency: 72 RPS at c=1 drops to 40 RPS at c=10. Batch enqueue achieves 185 RPS at c=10 — a **4.6x improvement**.
 

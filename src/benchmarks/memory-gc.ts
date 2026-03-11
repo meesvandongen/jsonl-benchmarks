@@ -3,9 +3,9 @@
  *
  * Compares:
  *   1. Buffered vs streaming heap usage (manual measurement)
- *   2. @mvd/postgres .stream() heap usage under streaming backpressure
- *   2. ArrayBuffer reuse vs fresh allocation per row
- *   3. GC reclaimable memory after buffered vs streaming
+ *   2. porsager .cursor(500) vs .forEach() vs @mvd/postgres .stream()
+ *   3. ArrayBuffer reuse vs fresh allocation per row
+ *   4. GC reclaimable memory after buffered vs streaming
  */
 
 import { bench, group, run } from "mitata";
@@ -15,26 +15,29 @@ import { setupTables, seedIfNeeded } from "../db/setup";
 const SIZES = [10_000, 100_000];
 const enc = new TextEncoder();
 
-async function measurePeakHeap<T>(fn: () => Promise<T>): Promise<{ peakDeltaMB: number; retainedMB: number; result: T }> {
+async function measurePeakHeap<T>(fn: (sampleHeap: () => void) => Promise<T>): Promise<{ peakDeltaBytes: number; retainedBytes: number; result: T }> {
   Bun.gc(true);
   const heapBefore = process.memoryUsage().heapUsed;
   let maxHeap = heapBefore;
 
-  const poller = setInterval(() => {
+  const sampleHeap = () => {
     const current = process.memoryUsage().heapUsed;
     if (current > maxHeap) maxHeap = current;
-  }, 5);
+  };
+
+  const poller = setInterval(() => {
+    sampleHeap();
+  }, 1);
 
   try {
-    const result = await fn();
-    const current = process.memoryUsage().heapUsed;
-    if (current > maxHeap) maxHeap = current;
+    const result = await fn(sampleHeap);
+    sampleHeap();
     Bun.gc(true);
     const heapPostGc = process.memoryUsage().heapUsed;
 
     return {
-      peakDeltaMB: toMB(Math.max(0, maxHeap - heapBefore)),
-      retainedMB: toMB(Math.max(0, heapPostGc - heapBefore)),
+      peakDeltaBytes: Math.max(0, maxHeap - heapBefore),
+      retainedBytes: Math.max(0, heapPostGc - heapBefore),
       result,
     };
   } finally {
@@ -52,42 +55,73 @@ async function measureGcPressure() {
     console.log(`\n  ${size.toLocaleString()} rows:`);
 
     // Buffered: load all into memory
-    const buffered = await measurePeakHeap(async () => {
+    const buffered = await measurePeakHeap(async (sampleHeap) => {
       const rows = await sql`SELECT data FROM records ORDER BY id LIMIT ${size}`;
+      sampleHeap();
       const serialized = rows.map((r) => JSON.stringify((r as { data: unknown }).data));
+      sampleHeap();
       return serialized.length;
     });
-    console.log(`    buffered:         heap +${buffered.peakDeltaMB}MB peak, ${buffered.retainedMB}MB retained after GC`);
+    console.log(`    buffered:         heap +${fmtMemory(buffered.peakDeltaBytes)} peak, ${fmtMemory(buffered.retainedBytes)} retained after GC`);
 
     // Streaming via cursor: process row by row
-    const cursorStream = await measurePeakHeap(async () => {
+    const cursorStream = await measurePeakHeap(async (sampleHeap) => {
       let count = 0;
       const cursor = sql`SELECT data FROM records ORDER BY id LIMIT ${size}`.cursor(500);
       for await (const batch of cursor) {
+        sampleHeap();
         for (const row of batch) {
-          JSON.stringify(row.data);
+          const serialized = JSON.stringify(row.data);
+          sampleHeap();
+          if (serialized.length === 0) throw new Error("unexpected empty serialization");
           count++;
         }
       }
       return count;
     });
-    console.log(`    porsager cursor:  heap +${cursorStream.peakDeltaMB}MB peak, ${cursorStream.retainedMB}MB retained after GC (${cursorStream.result} rows)`);
+    console.log(`    porsager cursor:  heap +${fmtMemory(cursorStream.peakDeltaBytes)} peak, ${fmtMemory(cursorStream.retainedBytes)} retained after GC (${cursorStream.result} rows)`);
+
+    // Streaming via porsager .forEach()
+    const forEachStream = await measurePeakHeap(async (sampleHeap) => {
+      let count = 0;
+      await sql`SELECT data FROM records ORDER BY id LIMIT ${size}`
+        .forEach((row) => {
+          const serialized = JSON.stringify((row as { data: unknown }).data);
+          sampleHeap();
+          if (serialized.length === 0) throw new Error("unexpected empty serialization");
+          count++;
+        });
+      return count;
+    });
+    console.log(`    porsager forEach: heap +${fmtMemory(forEachStream.peakDeltaBytes)} peak, ${fmtMemory(forEachStream.retainedBytes)} retained after GC (${forEachStream.result} rows)`);
 
     // Streaming via @mvd/postgres .stream()
-    const mvdStream = await measurePeakHeap(async () => {
+    const mvdStream = await measurePeakHeap(async (sampleHeap) => {
       let count = 0;
       for await (const row of mvdSql`SELECT data FROM records ORDER BY id LIMIT ${size}`.stream()) {
-        JSON.stringify(row.data);
+        const serialized = JSON.stringify(row.data);
+        sampleHeap();
+        if (serialized.length === 0) throw new Error("unexpected empty serialization");
         count++;
       }
       return count;
     });
-    console.log(`    mvd .stream():    heap +${mvdStream.peakDeltaMB}MB peak, ${mvdStream.retainedMB}MB retained after GC (${mvdStream.result} rows)`);
+    console.log(`    mvd .stream():    heap +${fmtMemory(mvdStream.peakDeltaBytes)} peak, ${fmtMemory(mvdStream.retainedBytes)} retained after GC (${mvdStream.result} rows)`);
   }
 }
 
 function toMB(bytes: number): number {
   return Math.round((bytes / 1024 / 1024) * 100) / 100;
+}
+
+function toKB(bytes: number): number {
+  return Math.round((bytes / 1024) * 100) / 100;
+}
+
+function fmtMemory(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${toMB(bytes)}MB`;
+  if (bytes >= 1024) return `${toKB(bytes)}KB`;
+  return `${bytes}B`;
 }
 
 // ─── ArrayBuffer pooling benchmark (mitata) ────────────────────────────

@@ -14,6 +14,7 @@
     "bench:real-world": "bun src/benchmarks/real-world.ts",
     "bench:memory": "bun src/benchmarks/memory-gc.ts",
     "bench:mvd-memory": "bun src/benchmarks/mvd-memory-boundedness.ts",
+    "bench:latency": "bun src/benchmarks/db-latency.ts",
     "bench:http": "bun src/benchmarks/http-e2e.ts",
     "bench:framework": "bun src/benchmarks/http-bun-raw.ts",
     "bench:compression": "bun src/benchmarks/http-compression.ts",

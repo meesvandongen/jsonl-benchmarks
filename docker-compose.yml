@@ -31,5 +31,15 @@ services:
       timeout: 5s
       retries: 10
 
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    container_name: jsonl_bench_toxiproxy
+    ports:
+      - "8474:8474"
+      - "15432:15432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

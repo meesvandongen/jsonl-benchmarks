@@ -21,6 +21,19 @@ bun src/run.ts                # Run everything (seed + server + benchmark + repo
 
 Results are written to `RESULTS.md`.
 
+## Optional: high-latency DB benchmark
+
+To compare strategies when PostgreSQL RTT is artificially increased, start the optional Toxiproxy service and run the dedicated latency benchmark:
+
+```bash
+docker compose up -d postgres toxiproxy
+bun run bench:latency
+```
+
+This writes `reports/db-latency.json`. It is intentionally separate from `bun src/run.ts` because it is slower and requires the proxy service.
+
+The latency benchmark measures **completed request latency** under simulated PostgreSQL RTT (via Toxiproxy) rather than sustained multi-client load. That makes cursor round-trip amplification much easier to see.
+
 ---
 
 ## What is measured
